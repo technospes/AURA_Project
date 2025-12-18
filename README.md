@@ -174,22 +174,21 @@ Examples:
 
 --
 
-📂 Project Folder Structure
+## Project Structure
 
 aura_project/
-├── models/                  # Offline speech models (Vosk)
+├── models/ # Offline speech models (Vosk)
 ├── src/
-│   ├── __init__.py
-│   ├── config.py            # Central configuration (Sensitivity, Thresholds)
-│   ├── context.py           # Context awareness logic
-│   ├── control.py           # Mouse physics and gesture state machine
-│   ├── smoothing.py         # Jitter reduction filters
-│   ├── tracking.py          # MediaPipe & Camera threading
-│   └── voice.py             # Speech recognition engine
-├── run.py                   # Main application entry point
-├── requirements.txt         # Dependency list
-└── README.md                # Documentation
-
+│ ├── init.py
+│ ├── config.py # Central configuration (sensitivity, thresholds, flags)
+│ ├── context.py # Context awareness logic
+│ ├── control.py # Mouse physics and gesture state machine
+│ ├── smoothing.py # Jitter reduction filters
+│ ├── tracking.py # MediaPipe & camera threading
+│ └── voice.py # Speech recognition engine
+├── run.py # Main application entry point
+├── requirements.txt # Dependencies
+└── README.md # Documentation
 --
 
 🔧 Configuration
@@ -264,5 +263,5 @@ Distributed under the MIT License. See `LICENSE` for details.
 
 **Technospes**
 
-- LinkedIn: https://www.linkedin.com/in/ayushshukla-ar/  
-- GitHub: https://github.com/technospes
+- Website: [Link]  
+- GitHub: [Link]
