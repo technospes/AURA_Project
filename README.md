@@ -30,7 +30,7 @@ AURA is a high-performance, Python-based HCI that replaces traditional periphera
 
 ## Demo
 
-> Place GIFs / screenshots here (e.g. `assets/gesture_control.gif`, `assets/voice_commands.gif`).
+> ....In_Progress
 
 Examples:
 - Real-time gesture tracking with visual feedback bars and status indicators.
