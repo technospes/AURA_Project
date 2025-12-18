@@ -1,0 +1,9 @@
+opencv-python==4.8.0.76
+mediapipe==0.10.9
+numpy==1.26.0
+pyautogui==0.9.54
+pynput==1.7.6
+vosk==0.3.45
+pyaudio==0.2.14
+pywin32==306; sys_platform == 'win32'
+screeninfo==0.8.1
