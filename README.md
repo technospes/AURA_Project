@@ -190,8 +190,7 @@ aura_project/
 ├── run.py                   # Main application entry point
 ├── requirements.txt         # Dependencies
 └── README.md                # Documentation
---
-
+```
 🔧 Configuration
 
 All runtime parameters can be tuned in `src/config.py` to match your hardware and environment:
