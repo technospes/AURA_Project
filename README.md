@@ -174,21 +174,22 @@ Examples:
 
 --
 
-## Project Structure
+## 📂 Project Structure
 
+```text
 aura_project/
-├── models/ # Offline speech models (Vosk)
+├── models/                  # Offline speech models (Vosk)
 ├── src/
-│ ├── init.py
-│ ├── config.py # Central configuration (sensitivity, thresholds, flags)
-│ ├── context.py # Context awareness logic
-│ ├── control.py # Mouse physics and gesture state machine
-│ ├── smoothing.py # Jitter reduction filters
-│ ├── tracking.py # MediaPipe & camera threading
-│ └── voice.py # Speech recognition engine
-├── run.py # Main application entry point
-├── requirements.txt # Dependencies
-└── README.md # Documentation
+│   ├── __init__.py
+│   ├── config.py            # Central configuration (sensitivity, thresholds)
+│   ├── context.py           # Context awareness logic
+│   ├── control.py           # Mouse physics and gesture state machine
+│   ├── smoothing.py         # Jitter reduction filters
+│   ├── tracking.py          # MediaPipe & camera threading
+│   └── voice.py             # Speech recognition engine
+├── run.py                   # Main application entry point
+├── requirements.txt         # Dependencies
+└── README.md                # Documentation
 --
 
 🔧 Configuration
