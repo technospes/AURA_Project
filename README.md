@@ -263,5 +263,5 @@ Distributed under the MIT License. See `LICENSE` for details.
 
 **Technospes**
 
-- Website: [Link]  
-- GitHub: [Link]
+- Website: https://www.linkedin.com/in/ayushshukla-ar/ 
+- GitHub: https://github.com/technospes
