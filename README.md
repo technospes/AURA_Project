@@ -108,24 +108,32 @@ AURA uses a non-blocking, multi-threaded architecture to maintain responsiveness
 
 ### Clone the Repository
 
-git clone https://github.com/yourusername/aura-project.git
+```
+git clone https://github.com/technospes/AURA_Project.git
 cd aura-project
-
+```
 ### Create a Virtual Environment
 
 Windows
-
+```
 python -m venv venv
+```
+```
 venv\Scripts\activate
+```
 Linux / macOS
-
+```
 python3 -m venv venv
+```
+```
 source venv/bin/activate
+```
 
 ### Install Dependencies
 
+```
 pip install -r requirements.txt
-
+```
 > On Linux you may also need: `python3-tk` and `python3-dev`.
 
 ---
@@ -176,7 +184,7 @@ Examples:
 
 ## 📂 Project Structure
 
-```text
+```
 aura_project/
 ├── models/                  # Offline speech models (Vosk)
 ├── src/
@@ -240,16 +248,19 @@ Contributions and experiments are welcome.
 1. Fork the repository.  
 2. Create a feature branch:  
 
+```
 git checkout -b feature/AmazingFeature
-
+```
 3. Commit your changes:  
 
+```
 git commit -m "Add AmazingFeature"
-
+```
 4. Push to the branch:  
 
+```
 git push origin feature/AmazingFeature
-
+```
 5. Open a Pull Request.
 
 ---
@@ -263,5 +274,5 @@ Distributed under the MIT License. See `LICENSE` for details.
 
 **Technospes**
 
-- Website: https://www.linkedin.com/in/ayushshukla-ar/ 
-- GitHub: https://github.com/technospes
+- GitHub (Technospes): https://github.com/technospes
+- LinkedIn (Ayush Shukla): https://www.linkedin.com/in/ayushshukla-ar/
