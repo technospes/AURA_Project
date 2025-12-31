@@ -1,0 +1,9 @@
+Hindi big model for Vosk
+
+WER
+
+%WER 14.85 [ 3218 / 21670, 318 ins, 636 del, 2264 sub ] exp/chain/tdnn/decode_test_cv_rnnlm/wer_9_0.0
+%WER 31.40 [ 14941 / 47585, 1085 ins, 4566 del, 9290 sub ] exp/chain/tdnn/decode_test_gram_rnnlm/wer_8_0.0
+%WER 14.83 [ 5964 / 40205, 883 ins, 1151 del, 3930 sub ] exp/chain/tdnn/decode_test_iitm_rnnlm/wer_10_0.0
+%WER 13.11 [ 6011 / 45839, 1017 ins, 430 del, 4564 sub ] exp/chain/tdnn/decode_test_mucs_rnnlm/wer_10_0.0
+%WER 10.54 [ 13758 / 130589, 771 ins, 1404 del, 11583 sub ] exp/chain/tdnn/decode_test_tts_rnnlm/wer_8_0.0
