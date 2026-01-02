@@ -6,10 +6,6 @@ import subprocess
 import webbrowser
 import difflib
 from pathlib import Path
-
-# ============================================================================
-# CONFIGURATION & CONSTANTS
-# ============================================================================
 CACHE_FILE = Path("app_cache.json")
 CACHE_EXPIRY_DAYS = 7
 
