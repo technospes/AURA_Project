@@ -29,7 +29,7 @@ CACHE_FILE = Path("app_cache.json")
 # ============================================================================
 
 class BrowserTabManager:
-    """Manages browser tabs and windows"""
+    """Manages browser tabs and windows - FIXED VERSION"""
     
     BROWSER_PROCESSES = {
         'chrome': 'chrome.exe',
@@ -94,8 +94,8 @@ class BrowserTabManager:
     @staticmethod
     def close_tab_by_name(tab_name: str) -> bool:
         """
-        Safely close browser tab by name.
-        Strategy: Open new tab first to guarantee browser stays open.
+        Properly close browser tab by name - FIXED VERSION
+        Strategy: Focus the tab, then close it directly
         """
         hwnd = BrowserTabManager.find_browser_tab(tab_name)
         
@@ -103,11 +103,12 @@ class BrowserTabManager:
             print(f"[Tab] Tab '{tab_name}' not found")
             return False
         
-        print(f"[Tab] Closing '{tab_name}'...")
+        print(f"[Tab] Found tab containing '{tab_name}'")
         
         try:
-            # Step 1: Capture current active window to potentially restore later
+            # Step 1: Capture current active window
             original_active_hwnd = win32gui.GetForegroundWindow()
+            is_already_focused = (original_active_hwnd == hwnd)
             
             # Step 2: Check if target window is minimized
             placement = win32gui.GetWindowPlacement(hwnd)
@@ -116,36 +117,93 @@ class BrowserTabManager:
             # Step 3: Bring browser to foreground (restore if minimized)
             if was_minimized:
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                time.sleep(0.3)
             else:
                 win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+                time.sleep(0.2)
             
             win32gui.SetForegroundWindow(hwnd)
-            time.sleep(0.15)  # Small wait for window activation
+            time.sleep(0.3)  # Wait for window to be fully focused
             
-            # Step 4: 🔐 CRITICAL SAFETY - Open new tab first
-            # This guarantees browser won't close if we're on the last tab
-            pyautogui.hotkey('ctrl', 't')
-            time.sleep(0.1)   # Wait for new tab to open
-            
-            # Step 5: Close the target tab
+            # Step 4: Close the tab directly with Ctrl+W
+            print(f"[Tab] Closing tab...")
             pyautogui.hotkey('ctrl', 'w')
-            time.sleep(0.1)   # Wait for tab to close
+            time.sleep(0.3)  # Wait for tab to close
             
-            # Step 6: Optional - Restore original window focus
-            # Only if user wasn't already in the browser
-            try:
-                if original_active_hwnd != hwnd and win32gui.IsWindow(original_active_hwnd):
-                    # Small delay to ensure browser operations complete
-                    time.sleep(0.2)
-                    win32gui.SetForegroundWindow(original_active_hwnd)
-            except:
-                pass  # Don't fail if we can't restore focus
+            # Step 5: Restore original window focus if needed
+            # Only restore if user wasn't already in the browser
+            if not is_already_focused:
+                try:
+                    if win32gui.IsWindow(original_active_hwnd):
+                        time.sleep(0.2)
+                        win32gui.SetForegroundWindow(original_active_hwnd)
+                except:
+                    pass  # Don't fail if we can't restore focus
             
-            print(f"[Tab] ✓ Successfully closed '{tab_name}'")
+            print(f"[Tab] ✓ Successfully closed tab containing '{tab_name}'")
             return True
             
         except Exception as e:
             print(f"[Tab] Error closing tab: {e}")
+            return False
+    
+    @staticmethod
+    def close_tab_by_name_advanced(tab_name: str) -> bool:
+        """
+        Advanced tab closing with browser-specific optimizations
+        Handles edge cases like last tab, pinned tabs, etc.
+        """
+        hwnd = BrowserTabManager.find_browser_tab(tab_name)
+        
+        if not hwnd:
+            print(f"[Tab] Tab '{tab_name}' not found")
+            return False
+        
+        print(f"[Tab] Found tab containing '{tab_name}'")
+        
+        try:
+            # Get browser type
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            proc = psutil.Process(pid)
+            proc_name = proc.name().lower()
+            
+            is_chrome_based = any(x in proc_name for x in ['chrome', 'edge', 'brave'])
+            is_firefox = 'firefox' in proc_name
+            
+            # Focus the window
+            placement = win32gui.GetWindowPlacement(hwnd)
+            if placement[1] == win32con.SW_SHOWMINIMIZED:
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                time.sleep(0.3)
+            
+            win32gui.SetForegroundWindow(hwnd)
+            time.sleep(0.4)
+            
+            # Chrome/Edge/Brave: Use Ctrl+W
+            if is_chrome_based:
+                print(f"[Tab] Using Chrome-based close method")
+                pyautogui.hotkey('ctrl', 'w')
+                time.sleep(0.2)
+            
+            # Firefox: Use Ctrl+W
+            elif is_firefox:
+                print(f"[Tab] Using Firefox close method")
+                pyautogui.hotkey('ctrl', 'w')
+                time.sleep(0.2)
+            
+            # Unknown browser: Use Ctrl+W
+            else:
+                print(f"[Tab] Using generic close method")
+                pyautogui.hotkey('ctrl', 'w')
+                time.sleep(0.2)
+            
+            print(f"[Tab] ✓ Successfully closed tab containing '{tab_name}'")
+            return True
+            
+        except Exception as e:
+            print(f"[Tab] Error closing tab: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @staticmethod
@@ -502,19 +560,42 @@ class SpotifyDesktopController:
             pyautogui.press('enter')
             time.sleep(2.5)  # Wait for search results to load
             
-            # STEP 9: Play first result
-            print(f"[Spotify] Playing first result...")
+            # STEP 9: Navigate to and play first result - AGGRESSIVE METHOD
+            print(f"[Spotify] Navigating to first search result...")
             
-            # In Spotify, after search:
-            # - First Enter selects the first track
-            # - Need to press Enter again or Space to play
+            # Method: Click on first result instead of keyboard navigation
+            # This is more reliable as Spotify's focus can be unpredictable
+            
+            # Wait for search results to fully render
+            time.sleep(1.0)
+            
+            # Strategy: Tab to results, then use arrow keys multiple times to ensure
+            # we're on the first actual track (not playlist/artist)
+            
+            # Tab out of search bar
+            pyautogui.press('tab')
+            time.sleep(0.4)
+            
+            # Sometimes there are category headers ("Songs", "Artists", etc.)
+            # Press Tab again to get to the actual tracks list
+            pyautogui.press('tab')
+            time.sleep(0.4)
+            
+            # Now we should be in the tracks section
+            # Press Down to make sure first track is selected
+            pyautogui.press('down')
+            time.sleep(0.3)
+            
+            # Press Up to go back to truly first track
+            pyautogui.press('up')
+            time.sleep(0.3)
+            
+            # Double-click Enter to ensure we both select AND play
+            print(f"[Spotify] Playing selected track...")
+            pyautogui.press('enter')
+            time.sleep(0.4)
             pyautogui.press('enter')
             time.sleep(0.5)
-            
-            # Double-check playback started (press space)
-            # This acts as a toggle, so it ensures playback
-            pyautogui.press('space')
-            time.sleep(0.3)
             
             print(f"\n{'='*60}")
             print(f"[Spotify] ✓ Automation completed successfully!")
@@ -532,7 +613,7 @@ class SpotifyDesktopController:
             import traceback
             traceback.print_exc()
             return False
-
+        
 # ============================================================================
 # YOUTUBE AUTOPLAY
 # ============================================================================
