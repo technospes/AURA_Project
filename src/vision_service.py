@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from ctypes import windll, Structure, c_long, create_unicode_buffer
 import os
-
+from src.click_drag_system import enhanced_cursor_thread_with_drag
 from src.config import CAM_WIDTH, CAM_HEIGHT, MOUSE_PHYSICS, GESTURE_CONFIG
 from src.native_opener import open_app, close_app, play_music, search_web
 
@@ -537,7 +537,7 @@ def vision_process_loop(shared_state):
     
     # Start cursor thread (120 FPS, independent)
     cursor_thread_handle = threading.Thread(
-        target=cursor_thread,
+        target=enhanced_cursor_thread_with_drag,  # Changed
         args=(hand_state, screen_w, screen_h),
         daemon=True
     )
