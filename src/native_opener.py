@@ -7,6 +7,9 @@ import sys
 import time
 import json
 import subprocess
+import logging
+from typing import Dict, Any, Optional
+from difflib import SequenceMatcher
 import webbrowser
 import difflib
 import psutil
@@ -23,6 +26,13 @@ pyautogui.PAUSE = 0.0
 pyautogui.FAILSAFE = False
 
 CACHE_FILE = Path("app_cache.json")
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # BROWSER TAB MANAGER
@@ -843,7 +853,7 @@ class YouTubePlayer:
 # ============================================================================
 
 class TypingController:
-    """Automated typing in active window or Notepad"""
+    """Automated typing with punctuation and formatting support"""
     
     @staticmethod
     def is_notepad_active() -> bool:
@@ -863,14 +873,65 @@ class TypingController:
                 subprocess.Popen("notepad.exe", shell=False)
                 time.sleep(0.8)
             
-            return TypingController.type_in_active_window(text)
+            return TypingController.type_with_formatting(text)
+        except Exception as e:
+            print(f"[Typing] Error: {e}")
+            return False
+    
+    @staticmethod
+    def type_with_formatting(text: str) -> bool:
+        """
+        Type text with proper spacing and punctuation handling
+        
+        Features:
+        - Adds spaces after punctuation
+        - Handles newlines
+        - Preserves capitalization
+        """
+        try:
+            # Split into sentences for proper spacing
+            import re
+            
+            # Handle special punctuation that needs spaces
+            text = re.sub(r'([.!?])([A-Z])', r'\1 \2', text)  # Space after sentence end
+            text = re.sub(r'([,;:])([^\s])', r'\1 \2', text)  # Space after commas
+            
+            # Type character by character with smart spacing
+            prev_char = ''
+            for i, char in enumerate(text):
+                # Handle special characters
+                if char == '\n':
+                    pyautogui.press('enter')
+                    time.sleep(0.05)
+                elif char == '\t':
+                    pyautogui.press('tab')
+                    time.sleep(0.05)
+                else:
+                    try:
+                        # Check if we need a space before this character
+                        # (e.g., after punctuation if not already there)
+                        if i > 0 and prev_char in '.!?,;:' and char not in ' \n\t':
+                            if text[i-1:i] != ' ':  # Only add if no space already
+                                pyautogui.write(' ', interval=0.02)
+                        
+                        # Type the character
+                        pyautogui.write(char, interval=0.02)
+                    except:
+                        # Fallback for special characters
+                        pyautogui.press(char)
+                        time.sleep(0.02)
+                
+                prev_char = char
+            
+            return True
+            
         except Exception as e:
             print(f"[Typing] Error: {e}")
             return False
     
     @staticmethod
     def type_in_active_window(text: str) -> bool:
-        """Type text in currently active window"""
+        """Type text in currently active window (legacy method)"""
         try:
             for char in text:
                 try:
@@ -1116,35 +1177,234 @@ class CommandExecutor:
         self.youtube = YouTubePlayer()
         self.typing = TypingController()
     
-    def execute_command(self, intent: Dict, context=None) -> Dict:
-        """Execute parsed intent"""
+    def speak_text(text: str):
+        """Convert text to speech (Windows)"""
         try:
-            category = intent.get("intent")
-            action = intent.get("action")
-            payload = intent.get("payload", {})
-            source_text = intent.get("source_text", "")
+            import platform
             
-            # Route to handlers
-            handlers = {
-                "tab": self._handle_tab,
-                "web": self._handle_web,
-                "app": self._handle_app,
-                "search": self._handle_search,
-                "media": self._handle_media,
-                "system": self._handle_system,
-                "input": self._handle_input,
-                "navigate": self._handle_navigation,
-                "file": self._handle_file,
-            }
-            
-            handler = handlers.get(category)
-            if handler:
-                return handler(action, payload, source_text)
+            if platform.system() == "Windows":
+                import win32com.client
+                speaker = win32com.client.Dispatch("SAPI.SpVoice")
+                speaker.Speak(text)
             else:
-                return {"status": "error", "message": "Unknown command category"}
-        
+                # For Linux/Mac
+                import os
+                os.system(f'say "{text}"')
+                
         except Exception as e:
-            return {"status": "error", "message": f"Execution failed: {e}"}
+            print(f"[TTS] Could not speak: {e}")
+
+    def _execute_command_async(self, intent_data: dict):
+        """Execute command asynchronously"""
+        try:
+            result = execute_intent(intent_data)
+            
+            # FIX: Check if 'message' key exists
+            if result["status"] == "success":
+                message = result.get("message", "Command executed successfully")
+                print(f"[✓] {message}")
+            else:
+                message = result.get("message", "Command failed")
+                print(f"[✗] {message}")
+            
+            self.commands_processed += 1
+            
+        except Exception as e:
+            logger.error(f"Execute command error: {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"[✗] Command execution failed")
+
+    def _get_cached_result(self, intent_data: dict) -> Optional[dict]:
+        """Get cached result only for safe commands"""
+        # Double-check this is a cacheable command
+        action = intent_data.get("action", "").lower()
+        
+        # SAFE actions to cache (only these!)
+        CACHEABLE_ACTIONS = {
+            "open", "close", "minimize", "maximize", 
+            "type", "play", "closetab", "close_tab"
+        }
+        
+        if action not in CACHEABLE_ACTIONS:
+            return None
+        
+        cache_key = f"{action}:{intent_data.get('target')}"
+        
+        # Check cache with timestamp validation
+        if cache_key in self._command_cache:
+            cached_entry = self._command_cache[cache_key]
+            
+            # Check if cache entry is expired (30 seconds for most commands)
+            if time.time() - cached_entry.get("timestamp", 0) < 30:
+                self.stats["cache_hits"] += 1
+                return cached_entry.get("result")
+            else:
+                # Remove expired cache entry
+                del self._command_cache[cache_key]
+        
+        return None
+
+    def _cache_result(self, intent_data: dict, result: dict):
+        """Cache result with safety checks"""
+        action = intent_data.get("action", "").lower()
+        target = intent_data.get("target", "").lower()
+        
+        # FINAL SAFETY CHECK: Never cache these
+        NEVER_CACHE = {
+            "what": ["weather", "time", "date", "news"],
+            "search": ["weather", "time", "stock", "news"],
+            "chat": [],  # All chat commands
+            "ask": [],   # All ask commands
+            "explain": []  # All explain commands
+        }
+        
+        for forbidden_action, forbidden_patterns in NEVER_CACHE.items():
+            if action == forbidden_action:
+                if not forbidden_patterns or any(p in target for p in forbidden_patterns):
+                    logger.debug(f"SAFETY: Not caching {action} command")
+                    return
+        
+        # Add timestamp to cache entry
+        cache_key = f"{action}:{intent_data.get('target')}"
+        self._command_cache[cache_key] = {
+            "result": result,
+            "timestamp": time.time(),
+            "action": action,
+            "target": target
+        }
+        
+        logger.debug(f"Cached result for: {cache_key}")
+
+    def _handle_cached_result(self, result: dict):
+        """Handle cached result with appropriate indicators"""
+        message = result.get("message", "")
+        action = result.get("original_action", "")
+        
+        # Different cache indicators based on action type
+        if action in ["open", "close", "play"]:
+            print(f"[⚡] {message} (from cache)")
+        else:
+            print(f"[✓] {message} (cached)")
+        
+        self.commands_processed += 1
+
+    def _handle_ai_conversation(self, query: str):
+        """Handle AI conversations - called only from _execute_command_async"""
+        try:
+            if not self.llama_brain:
+                print("[Aura] AI brain not available. Searching web...")
+                search_url = f"https://www.google.com/search?q={quote_plus(query)}"
+                webbrowser.open(search_url)
+                print(f"[Aura] Opened web search for: {query}")
+                return
+            
+            print("[Aura] Let me check...")
+            
+            # Use the chat method which has web_search tool
+            response = self.llama_brain.chat(query)
+            
+            # Display response
+            print(f"\n[Aura] {response}\n")
+            
+        except Exception as e:
+            logger.error(f"AI conversation error: {e}")
+            print("[Aura] Sorry, I couldn't process that.")
+        
+    def _process_execution_result(self, result: dict):
+        """Process execution result with safety"""
+        status = result.get("status", "")
+        
+        # Special handling for conversational queries
+        if status == "conversation":
+            query = result.get("query", "")
+            if query:
+                # Check if it's a time-sensitive query
+                if self._is_time_sensitive_query(query):
+                    # Don't use any cached data for time-sensitive queries
+                    self._handle_fresh_conversation(query)
+                else:
+                    self._handle_conversation_result(result)
+            return
+        
+        # Use handler dictionary for other statuses
+        status_handlers = {
+            "success": self._handle_success_result,
+            "error": self._handle_error_result,
+            "attempted": self._handle_attempted_result,
+            "web_fallback": self._handle_fallback_result
+        }
+        
+        handler = status_handlers.get(status)
+        
+        if handler:
+            handler(result)
+        else:
+            print(f"[•] {result.get('message', 'Command executed')}")
+        
+        # Count as processed if not conversational
+        if status != "conversation":
+            self.commands_processed += 1
+
+    def _is_time_sensitive_query(self, query: str) -> bool:
+        """Check if a query is time-sensitive (should never be cached)"""
+        query_lower = query.lower()
+        
+        TIME_SENSITIVE_KEYWORDS = {
+            "weather", "time", "date", "now", "today",
+            "current", "latest", "stock", "price",
+            "score", "news", "update", "temperature",
+            "forecast", "traffic", "live"
+        }
+        
+        # Check for time-sensitive keywords
+        if any(keyword in query_lower for keyword in TIME_SENSITIVE_KEYWORDS):
+            return True
+        
+        # Check for question words that imply time sensitivity
+        question_patterns = ["what's", "what is", "how is", "when is", "where is"]
+        if any(pattern in query_lower for pattern in question_patterns):
+            # Check what they're asking about
+            for keyword in TIME_SENSITIVE_KEYWORDS:
+                if keyword in query_lower:
+                    return True
+        
+        return False
+
+    def _handle_fresh_conversation(self, query: str):
+        """Handle time-sensitive conversation queries with fresh data"""
+        query_lower = query.lower()
+        
+        # Handle common time-sensitive queries locally if possible
+        if "time" in query_lower or "what time" in query_lower:
+            current_time = time.strftime("%I:%M %p")
+            print(f"[🕒] It's {current_time}")
+            return
+        
+        if "date" in query_lower or "what date" in query_lower:
+            current_date = time.strftime("%B %d, %Y")
+            print(f"[📅] Today is {current_date}")
+            return
+        
+        if "day" in query_lower or "what day" in query_lower:
+            current_day = time.strftime("%A")
+            print(f"[📆] It's {current_day}")
+            return
+        
+        # For other time-sensitive queries, indicate fresh response
+        print(f"[🔍] Getting latest information for: {query}")
+        # This would typically call an API for fresh data
+        
+    def _handle_conversation_result(self, result: dict):
+        """Handle non-time-sensitive conversation results"""
+        query = result.get("query", "")
+        if query:
+            # Try local answers first
+            local_response = self._try_local_answer(query)
+            if local_response:
+                print(f"[🤖] {local_response}")
+            else:
+                print(f"[💬] I'll help you with: {query}")
     
     def _handle_tab(self, action: str, payload: Dict, source: str) -> Dict:
         """Handle tab management"""
@@ -1200,6 +1460,7 @@ class CommandExecutor:
             "payload": {},
             "source_text": "play it again"
         })
+    
     def handle_spotify_playback(media_name: str) -> dict:
         """
         Handle Spotify playback with proper error handling.
@@ -1456,25 +1717,654 @@ class CommandExecutor:
 # GLOBAL INSTANCE & PUBLIC API
 # ============================================================================
 
-# ============================================================================
-# GLOBAL INSTANCE & PUBLIC API - FIXED
-# ============================================================================
+_EXECUTOR = CommandExecutor()
+REGISTRY = _EXECUTOR.registry.apps
+def detect_shutdown_intent(command_text: str, current_intent: dict) -> dict:
+        """Detect if a command is actually a shutdown command"""
+        command_lower = command_text.lower()
+        
+        shutdown_patterns = [
+            "shutdown", "shut down", "turn off", "power off", "power down",
+            "shut the computer", "shut the pc", "shut the laptop"
+        ]
+        
+        restart_patterns = [
+            "restart", "reboot", "reset", "restart computer", "reboot pc"
+        ]
+        
+        sleep_patterns = [
+            "sleep", "suspend", "hibernate", "put to sleep", "go to sleep"
+        ]
+        
+        for pattern in shutdown_patterns:
+            if pattern in command_lower:
+                return {
+                    "action": "shutdown",
+                    "target": "computer",
+                    "confidence": 0.95,
+                    "parameters": {}
+                }
+        
+        for pattern in restart_patterns:
+            if pattern in command_lower:
+                return {
+                    "action": "restart",
+                    "target": "computer",
+                    "confidence": 0.95,
+                    "parameters": {}
+                }
+        
+        for pattern in sleep_patterns:
+            if pattern in command_lower:
+                return {
+                    "action": "sleep",
+                    "target": "computer",
+                    "confidence": 0.95,
+                    "parameters": {}
+                }
+        
+        # Return original intent if no shutdown detected
+        return current_intent
 
-EXECUTOR = CommandExecutor()
-REGISTRY = EXECUTOR.registry
+def execute_intent(intent_data: dict) -> dict:
+    """
+    MAIN EXECUTION FUNCTION - Fixed version with weather handling and power commands
+    """
+    try:
+        original_text = intent_data.get("original_text", "")
+        
+        # 🔥 NEW: Detect shutdown intents BEFORE processing
+        intent_data = detect_shutdown_intent(original_text, intent_data)
+        
+        action = intent_data.get("action", "").lower()
+        target = intent_data.get("target", "").strip()
+        parameters = intent_data.get("parameters", {})
+        logger.info(f"[Execute] Action: '{action}', Target: '{target}'")
+        
+        target_lower = target.lower()
+        
+        # ============================================================
+        # 🔥 NEW: POWER/SHUTDOWN COMMANDS - Handle FIRST (before weather)
+        # ============================================================
+        if action in ["shutdown", "restart", "reboot", "sleep", "hibernate"]:
+            return handle_power_command(action, target, parameters)
+        
+        # Also check if this is a shutdown disguised as "close computer"
+        if action == "close" and target_lower in ["computer", "pc", "laptop", "system"]:
+            print(f"[Power] Detected 'close {target}' -> converting to shutdown")
+            return handle_power_command("shutdown", "computer", parameters)
+        
+        # ============================================================
+        # 🔥 FIX: WEATHER QUERIES - Handle BEFORE conversation routing
+        # ============================================================
+        if any(keyword in target_lower for keyword in ["weather", "temperature", "forecast"]):
+            return _handle_weather_query(target_lower)
+        
+        if action in ["chat", "ask", "tell", "what", "how", "explain", "weather", "who", "why"]:
+            return handle_conversational_query(target, parameters)
+        
+        # ============================================================
+        # SIMPLE GREETINGS - No change needed
+        # ============================================================
+        simple_greetings = {
+            "how are you": "I'm doing great! Ready to help you with anything.",
+            "how are you doing": "I'm functioning perfectly! What can I do for you?",
+            "hello": "Hello! How can I help you today?",
+            "hi": "Hi there! What can I do for you?",
+            "hey": "Hey! How can I assist you?",
+        }
+        
+        if action in ["chat", "ask"] and target_lower in simple_greetings:
+            return {
+                "status": "success",
+                "message": f"[Aura] {simple_greetings[target_lower]}"
+            }
+        
+        # ============================================================
+        # TIME/DATE QUERIES - No change needed
+        # ============================================================
+        if action == "what" and any(word in target_lower for word in ["time", "date", "day"]):
+            if "time" in target_lower:
+                current_time = time.strftime("%I:%M %p")
+                return {"status": "success", "message": f"[🕐] It's {current_time}"}
+            elif "date" in target_lower:
+                current_date = time.strftime("%B %d, %Y")
+                return {"status": "success", "message": f"[📅] Today is {current_date}"}
+            elif "day" in target_lower:
+                current_day = time.strftime("%A")
+                return {"status": "success", "message": f"[📆] It's {current_day}"}
+        
+        # ============================================================
+        # ACTION HANDLERS - Updated with conversation fix
+        # ============================================================
+        action_handlers = {
+            # 🔥 FIX: Conversation queries now properly return for AI handling
+            "chat": lambda: {"status": "conversation", "query": target},
+            "ask": lambda: {"status": "conversation", "query": target},
+            "explain": lambda: {"status": "conversation", "query": target},
+            "what": lambda: {"status": "conversation", "query": target},
+            
+            # Other handlers (unchanged)
+            "open": lambda: _handle_open_action(target_lower, target),
+            "close": lambda: _handle_close_action(target_lower, target),
+            "closetab": lambda: _handle_tab_close(),
+            "play": lambda: _handle_play_action(target, parameters),
+            "search": lambda: _handle_search_action(target, parameters),
+            "type": lambda: _handle_type_action(target),
+            "minimize": lambda: _handle_minimize(),
+            "maximize": lambda: _handle_maximize(),
+        }
+        
+        if action in action_handlers:
+            return action_handlers[action]()
+        
+        return {"status": "error", "message": f"Unknown action: {action}"}
+    
+    except Exception as e:
+        logger.error(f"Execute intent error: {e}")
+        return {"status": "error", "message": str(e)}
+    
+def handle_power_command(action: str, target: str, parameters: dict) -> dict:
+    """Handle shutdown, restart, sleep commands"""
+    try:
+        import platform
+        
+        system_os = platform.system().lower()
+        
+        # Map common shutdown phrases
+        shutdown_phrases = ["shutdown", "shut down", "power off", "turn off", "power down"]
+        restart_phrases = ["restart", "reboot", "reset"]
+        sleep_phrases = ["sleep", "suspend", "hibernate"]
+        
+        command_text = f"{action} {target}".lower().strip()
+        
+        # Check which command to execute
+        if any(phrase in command_text for phrase in shutdown_phrases):
+            if system_os == "windows":
+                # Shutdown computer (force after 60 seconds)
+                subprocess.run(["shutdown", "/s", "/t", "60"])
+                return {
+                    "status": "success",
+                    "message": "Computer will shut down in 60 seconds. Say 'cancel shutdown' to cancel."
+                }
+            elif system_os == "linux" or system_os == "darwin":  # Darwin = macOS
+                subprocess.run(["shutdown", "-h", "+1"])
+                return {
+                    "status": "success", 
+                    "message": "Computer will shut down in 1 minute."
+                }
+                
+        elif any(phrase in command_text for phrase in restart_phrases):
+            if system_os == "windows":
+                subprocess.run(["shutdown", "/r", "/t", "60"])
+                return {
+                    "status": "success",
+                    "message": "Computer will restart in 60 seconds."
+                }
+            elif system_os == "linux" or system_os == "darwin":
+                subprocess.run(["shutdown", "-r", "+1"])
+                return {
+                    "status": "success",
+                    "message": "Computer will restart in 1 minute."
+                }
+                
+        elif any(phrase in command_text for phrase in sleep_phrases):
+            if system_os == "windows":
+                subprocess.run(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+                return {
+                    "status": "success",
+                    "message": "Putting computer to sleep."
+                }
+            elif system_os == "linux":
+                subprocess.run(["systemctl", "suspend"])
+                return {
+                    "status": "success",
+                    "message": "Putting computer to sleep."
+                }
+            elif system_os == "darwin":
+                subprocess.run(["pmset", "sleepnow"])
+                return {
+                    "status": "success",
+                    "message": "Putting computer to sleep."
+                }
+        
+        # Default fallback
+        return {
+            "status": "error",
+            "message": f"Could not understand power command: {command_text}"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Power command failed: {str(e)}"
+        }
 
-def execute_intent(intent: Dict, context=None) -> Dict:
-    """Execute an intent command"""
-    return EXECUTOR.execute_command(intent, context)
+def handle_conversational_query(query: str, parameters: dict) -> dict:
+    """Handle conversational queries using Groq API"""
+    try:
+        from groq import Groq
+        
+        # Ensure query is not empty
+        if not query or len(query.strip()) < 2:
+            return {
+                "status": "error",
+                "message": "Query is empty or too short"
+            }
+        
+        # Get API key
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return {
+                "status": "error",
+                "message": "GROQ_API_KEY not found"
+            }
+        
+        client = Groq(api_key=api_key)
+        
+        # Prepare the conversation
+        messages = [
+            {
+                "role": "system",
+                "content": """You are Aura, a helpful and friendly voice assistant. 
+                Keep your responses concise but friendly. 
+                If asked about weather, provide a simple weather update.
+                If asked how you are, respond positively.
+                Limit responses to 1-2 sentences."""
+            },
+            {
+                "role": "user",
+                "content": query
+            }
+        ]
+        
+        # Make API call
+        response = client.chat.completions.create(
+            messages=messages,
+            model="llama-3.3-70b-versatile",
+            temperature=0.7,
+            max_tokens=150
+        )
+        
+        answer = response.choices[0].message.content.strip()
+        
+        # Print the response
+        print(f"\n[Aura] {answer}\n")
+        
+        # You could add text-to-speech here if you want
+        # speak_text(answer)
+        
+        return {
+            "status": "success",
+            "message": f"Answered: {query[:30]}..."
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Could not answer query: {str(e)}"
+        }
+    
+def _handle_weather_query(query_lower: str) -> dict:
+    """Handle weather queries with location extraction"""
+    try:
+        from urllib.parse import quote_plus
+        import webbrowser
+        
+        # Extract location
+        location = ""
+        for keyword in ["weather in ", "temperature in ", "forecast for "]:
+            if keyword in query_lower:
+                location = query_lower.split(keyword, 1)[1].strip()
+                break
+        
+        # If no location found, try common patterns
+        if not location:
+            words = query_lower.replace("weather", "").replace("temperature", "").replace("forecast", "").strip().split()
+            if words:
+                location = " ".join(words)
+        
+        # Build search query
+        if location:
+            search_query = f"weather in {location}"
+        else:
+            search_query = "weather"
+        
+        # Open Google weather
+        search_url = f"https://www.google.com/search?q={quote_plus(search_query)}"
+        webbrowser.open(search_url)
+        
+        message = f"Showing weather for {location}" if location else "Showing current weather"
+        return {"status": "success", "message": f"[🌤️] {message}"}
+    
+    except Exception as e:
+        logger.error(f"Weather query error: {e}")
+        return {"status": "error", "message": "Could not fetch weather"}
+# ============================================================
+# HELPER FUNCTIONS - MODULAR AND REUSABLE
+# ============================================================
+
+def _handle_conversation(query: str) -> dict:
+    """Handle conversational queries"""
+    return {
+        "status": "conversation",
+        "action": "chat",
+        "query": query,
+        "message": f"I'll help you with: {query}"
+    }
+
+def _handle_what_query(query_lower: str) -> dict:
+    """Handle 'what' queries (weather, time, etc.)"""
+    if "weather" in query_lower:
+        location = query_lower.replace("weather", "").replace("in", "").strip()
+        if location:
+            search_query = f"weather in {location}"
+        else:
+            search_query = "weather"
+        webbrowser.open(f"https://www.google.com/search?q={quote_plus(search_query)}")
+        return {"status": "success", "message": f"Showing weather for {location or 'current location'}"}
+    
+    if "time" in query_lower or "date" in query_lower:
+        current_time = time.strftime("%I:%M %p")
+        current_date = time.strftime("%B %d, %Y")
+        return {
+            "status": "conversation",
+            "action": "what",
+            "query": query_lower,
+            "message": f"It's {current_time} on {current_date}"
+        }
+    
+    # Default for other "what" questions
+    return _handle_conversation(query_lower)
+
+def _handle_open_action(target_lower: str, target_original: str) -> dict:
+    """Handle open commands - APPS FIRST, then websites"""
+    if not target_lower:
+        return {"status": "error", "message": "No target specified"}
+    
+    # 🔥 CRITICAL FIX: Check for INSTALLED APP first
+    app_result = _try_open_desktop_app(target_lower)
+    if app_result["status"] == "success":
+        return app_result  # Found and opened app, stop here
+    
+    # Website mapping (only if app not found)
+    WEBSITE_MAP = {
+        'youtube': 'https://www.youtube.com',
+        'instagram': 'https://www.instagram.com',
+        'facebook': 'https://www.facebook.com',
+        'twitter': 'https://twitter.com',
+        'reddit': 'https://reddit.com',
+        'github': 'https://github.com',
+        'gmail': 'https://mail.google.com',
+        'google': 'https://google.com',
+        'linkedin': 'https://linkedin.com',
+        # NOTE: Discord, Spotify removed from here - should open desktop apps
+    }
+    
+    # Only open website if app not found
+    if target_lower in WEBSITE_MAP:
+        webbrowser.open(WEBSITE_MAP[target_lower])
+        return {"status": "success", "message": f"Opening {target_lower} website"}
+    
+    # Check if it looks like a URL
+    URL_INDICATORS = ['.com', '.in', '.org', '.net', '.io', 'www.', 'http']
+    if any(indicator in target_original for indicator in URL_INDICATORS):
+        url = target_original
+        if not url.startswith('http'):
+            if not url.startswith('www.'):
+                url = 'www.' + url
+            url = 'https://' + url
+        webbrowser.open(url)
+        return {"status": "success", "message": f"Opening {url}"}
+    
+    # If nothing worked
+    return {"status": "error", "message": f"Could not find: {target_lower}"}
+
+def _try_open_desktop_app(app_name: str) -> dict:
+    """Try to open desktop app - returns success/error status"""
+    matched, app_path, confidence = _EXECUTOR.registry.find_app(app_name)
+    
+    if confidence < 0.5:
+        return {"status": "error", "message": f"App not found: {app_name}"}
+    
+    try:
+        if app_path.endswith('.exe'):
+            subprocess.Popen(app_path, shell=False)
+        else:
+            os.startfile(app_path)
+        return {"status": "success", "message": f"Opening {matched}"}
+    except Exception as e:
+        logger.error(f"Failed to open app: {e}")
+        return {"status": "error", "message": f"Failed to open: {e}"}
+
+
+def _handle_close_action(target_lower: str, target_original: str) -> dict:
+    """Handle close commands for apps, websites, and tabs"""
+    if not target_lower:
+        return {"status": "error", "message": "No target specified"}
+    
+    # Check if it's a website/browser tab
+    WEB_KEYWORDS = [
+        'youtube', 'instagram', 'facebook', 'twitter', 'reddit',
+        'github', 'gmail', 'google', 'netflix', 'amazon',
+        'whatsapp', 'linkedin', 'spotify', 'discord'
+    ]
+    
+    # Check for tab closing (contains "tab" keyword)
+    if "tab" in target_lower:
+        # Extract the actual site name
+        for keyword in WEB_KEYWORDS:
+            if keyword in target_lower:
+                if _EXECUTOR.tab_manager.close_tab_by_name(keyword):
+                    return {"status": "success", "message": f"Closed {keyword} tab"}
+    
+    # Check if it's a website (close browser tab)
+    for site in WEB_KEYWORDS:
+        if site in target_lower:
+            if _EXECUTOR.tab_manager.close_tab_by_name(site):
+                return {"status": "success", "message": f"Closed {site} tab"}
+    
+    # Otherwise, close desktop app
+    if _EXECUTOR.registry.close_app(target_lower):
+        return {"status": "success", "message": f"Closed {target_lower}"}
+    
+    return {"status": "error", "message": f"Could not close {target_lower}"}
+
+def _handle_tab_close() -> dict:
+    """Close current browser tab"""
+    if _EXECUTOR.tab_manager.close_current_tab():
+        return {"status": "success", "message": "Closed current tab"}
+    return {"status": "error", "message": "No active browser"}
+
+def _handle_play_action(target: str, parameters: dict) -> dict:
+    """Handle media playback"""
+    if not target:
+        return {"status": "error", "message": "No media specified"}
+    
+    platform = parameters.get("platform", "youtube").lower()
+    
+    if platform == "spotify":
+        success = SpotifyDesktopController.play_track_desktop(target)
+        if success:
+            return {"status": "success", "message": f"Playing '{target}' on Spotify"}
+        return {"status": "error", "message": f"Failed to play on Spotify"}
+    
+    elif platform == "youtube":
+        if _EXECUTOR.youtube.play_video(target):
+            return {"status": "success", "message": f"Playing '{target}' on YouTube"}
+        return {"status": "error", "message": "YouTube playback failed"}
+    
+    return {"status": "error", "message": f"Unsupported platform: {platform}"}
+
+def _handle_search_action(target: str, parameters: dict) -> dict:
+    """Handle web searches"""
+    if not target:
+        return {"status": "error", "message": "No search query"}
+    
+    platform = parameters.get("platform", "google").lower()
+    
+    SEARCH_URLS = {
+        "google": f"https://google.com/search?q={quote_plus(target)}",
+        "youtube": f"https://youtube.com/results?search_query={quote_plus(target)}",
+        "weather": f"https://google.com/search?q=weather+{quote_plus(target)}",
+        "amazon": f"https://amazon.in/s?k={quote_plus(target)}",
+        "wikipedia": f"https://en.wikipedia.org/wiki/Special:Search?search={quote_plus(target)}",
+        "flipkart": f"https://flipkart.com/search?q={quote_plus(target)}",
+        "spotify": f"https://open.spotify.com/search/{quote_plus(target)}",
+    }
+    
+    # Auto-detect search type
+    if "weather" in target.lower():
+        platform = "weather"
+    elif "wiki" in target.lower() or "wikipedia" in target.lower():
+        platform = "wikipedia"
+    
+    url = SEARCH_URLS.get(platform, SEARCH_URLS["google"])
+    webbrowser.open(url)
+    
+    return {"status": "success", "message": f"Searching '{target}' on {platform.title()}"}
+
+def _handle_type_action(text: str) -> dict:
+    """Handle typing with punctuation restoration"""
+    if not text:
+        return {"status": "error", "message": "No text to type"}
+    
+    # 🔥 FIX: Restore punctuation that brain might have stripped
+    text = _restore_punctuation(text)
+    
+    if _EXECUTOR.typing.type_with_formatting(text):
+        return {"status": "success", "message": f"Typed: {text[:50]}..."}
+    return {"status": "error", "message": "Typing failed"}
+ 
+def _restore_punctuation(text: str) -> str:
+    """Restore common punctuation patterns"""
+    import re
+    
+    # Question patterns
+    question_words = ["what", "when", "where", "who", "why", "how", "which", "whose", "whom"]
+    for word in question_words:
+        pattern = rf'\b{word}\b.*$'
+        if re.search(pattern, text, re.IGNORECASE) and not text.endswith('?'):
+            text = text + '?'
+            break
+    
+    # Sentence endings (if not already punctuated)
+    if not text[-1] in ['.', '?', '!', ',', ';', ':']:
+        # Check if it's a statement
+        if any(text.lower().startswith(word) for word in ["i'm", "i am", "currently", "it's", "it is"]):
+            text = text + '.'
+    
+    return text
+
+def _handle_minimize() -> dict:
+    """Minimize current window"""
+    pyautogui.hotkey('win', 'down')
+    return {"status": "success", "message": "Window minimized"}
+
+def _handle_maximize() -> dict:
+    """Maximize current window"""
+    pyautogui.hotkey('win', 'up')
+    return {"status": "success", "message": "Window maximized"}
 
 def refresh_registry():
     """Refresh application registry"""
-    EXECUTOR.registry.full_scan()
+    _EXECUTOR.registry.full_scan()
 
 # Convenience functions
-def open_app(name: str) -> Dict:
-    return execute_intent({"intent": "app", "action": "open", "payload": {"app_name": name}})
-
+def open_app(app_name: str) -> dict:
+    """
+    Open an application by name with Windows-safe launching
+    Returns: dict with status and message
+    """
+    try:
+        app_name = app_name.lower().strip()
+        logger.info(f"Attempting to open: {app_name}")
+        
+        # Check direct match in registry
+        if app_name in REGISTRY:
+            app_info = REGISTRY[app_name]
+            path = app_info["path"]
+            
+            logger.info(f"Found in registry: {path}")
+            
+            # ✅ Windows-safe launch
+            if path.startswith("ms-"):
+                # Special URI schemes (like ms-settings:)
+                os.system(f'start {path}')
+            else:
+                # Use START command for better Windows compatibility
+                # This handles spaces in paths and proper shell execution
+                subprocess.Popen(f'start "" "{path}"', shell=True)
+            
+            return {
+                "status": "success",
+                "message": f"Opening {app_name}..."
+            }
+        
+        # Check aliases
+        for key, app_info in REGISTRY.items():
+            aliases = app_info.get("aliases", [])
+            if app_name in aliases:
+                path = app_info["path"]
+                logger.info(f"Found via alias '{app_name}' -> {key}: {path}")
+                
+                if path.startswith("ms-"):
+                    os.system(f'start {path}')
+                else:
+                    subprocess.Popen(f'start "" "{path}"', shell=True)
+                
+                return {
+                    "status": "success",
+                    "message": f"Opening {key}..."
+                }
+        
+        # Try fuzzy matching
+        best_match = None
+        best_score = 0
+        
+        for key in REGISTRY.keys():
+            from difflib import SequenceMatcher
+            score = SequenceMatcher(None, app_name, key).ratio()
+            if score > best_score and score > 0.6:  # 60% similarity threshold
+                best_score = score
+                best_match = key
+        
+        if best_match:
+            app_info = REGISTRY[best_match]
+            path = app_info["path"]
+            logger.info(f"Fuzzy match: '{app_name}' -> {best_match} (score: {best_score:.2f})")
+            
+            if path.startswith("ms-"):
+                os.system(f'start {path}')
+            else:
+                subprocess.Popen(f'start "" "{path}"', shell=True)
+            
+            return {
+                "status": "success",
+                "message": f"Opening {best_match}..."
+            }
+        
+        # Last resort: try to launch directly (might work for system apps)
+        logger.warning(f"App not in registry, trying direct launch: {app_name}")
+        try:
+            subprocess.Popen(f'start "" "{app_name}.exe"', shell=True)
+            return {
+                "status": "success",
+                "message": f"Attempting to open {app_name}..."
+            }
+        except Exception as e:
+            logger.error(f"Direct launch failed: {e}")
+            return {
+                "status": "error",
+                "message": f"Could not find application: {app_name}"
+            }
+    
+    except Exception as e:
+        logger.error(f"Error opening {app_name}: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to open {app_name}: {str(e)}"
+        }
 def close_app(name: str) -> Dict:
     return execute_intent({"intent": "app", "action": "close", "payload": {"app_name": name}})
 
@@ -1536,6 +2426,34 @@ def repeat_last_video() -> Dict:
         "payload": {"media_name": "again"},
         "source_text": "play again"
     })
+# ============================================================================
+# WINDOW MANAGEMENT (Add these to native_opener.py)
+# ============================================================================
+def minimize_window() -> Dict:
+    """Minimizes the active window"""
+    try:
+        import pyautogui
+        # Windows shortcut to minimize active window
+        pyautogui.hotkey('win', 'down')
+        pyautogui.hotkey('win', 'down') # Press twice to ensure minimize
+        return {"status": "success", "message": "Window minimized"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def maximize_window() -> Dict:
+    """Maximizes the active window"""
+    try:
+        import pyautogui
+        # Windows shortcut to maximize active window
+        pyautogui.hotkey('win', 'up')
+        pyautogui.hotkey('win', 'up')
+        return {"status": "success", "message": "Window maximized"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def type_text(text: str) -> Dict:
+    """Types text directly"""
+    return execute_intent({"intent": "input", "action": "type", "payload": {"text": text}})
 
 def search_web(query: str, platform: str = "google") -> Dict:
     """Perform a web search."""
