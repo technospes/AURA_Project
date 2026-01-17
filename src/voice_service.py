@@ -1,6 +1,6 @@
 """
-Aura Voice Service (V21.0 - PRODUCTION OPTIMIZED)
-Features: Accurate recognition, proper intent routing, low latency
+Aura Voice Service (V21.1 - GROQ LLAMA OPTIMIZED)
+Features: Llama 3 integration, Groq cloud speech-to-text, enhanced accuracy
 """
 import sys
 import os
@@ -10,34 +10,53 @@ import time
 import threading
 import numpy as np
 import sounddevice as sd
-from vosk import Model, KaldiRecognizer
+from groq import Groq
 from difflib import SequenceMatcher
-
-from .config import VOICE_CONFIG, MODEL_PATHS, ASR_VOCABULARY
+from pathlib import Path
+import logging
+import random
+from .voice_io import JarvisVoice
+from .config import VOICE_CONFIG, GROQ_CONFIG, ASR_VOCABULARY
 from .intent_parser import parse_intent, validate_intent
 from .native_opener import execute_intent, REGISTRY
+from .brain import AIAssistant
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class AuraVoiceAssistant:
-    """Production voice assistant with enhanced accuracy"""
+    """Production voice assistant with Llama 3 brain integration"""
     
     def __init__(self, shared_state):
+        """Initialize voice assistant - COMPLETE FIXED VERSION"""
         self.shared_state = shared_state
         self.config = VOICE_CONFIG
+        
+        # Initialize Groq client for speech-to-text
+        self.groq_client = None
+        self._init_groq_client()
+        
+        # Initialize Llama Brain
+        self.llama_brain = None
+        self._init_llama_brain()
+        
+        # Initialize Jarvis Voice
+        self.jarvis_voice = JarvisVoice(voice="en-US-ChristopherNeural")
         
         # Audio queue
         self.audio_queue = queue.Queue(maxsize=3)
         
-        # State management
-        self.running = True
+        # 🔥 FIX: Initialize ALL missing variables
         self.current_gain = 1.0
         self.pending_confirmation = None
         self.last_command_time = 0
         self.command_cooldown = 0.3
         
         # Wake word state
-        self.wake_word_detected = False
+        self.wake_word_detected = False  # 🔥 Changed to False so it waits for wake word
         self.wake_word_time = 0
-        self.listening_for_command = False
+        self.listening_for_command = False  # 🔥 Changed to False initially
         
         # Noise filtering
         self.silence_frames = 0
@@ -47,63 +66,53 @@ class AuraVoiceAssistant:
         self.background_noise_level = 0.0
         self.speech_start_time = 0
         
+        # Audio buffer for Groq STT
+        self.audio_buffer = []
+        self.max_buffer_duration = 15  # Max seconds of audio to buffer
+        self.min_buffer_duration = 0.5  # Min seconds before transcribing
+        
         # Stats
         self.commands_processed = 0
         self.wake_word_detections = 0
+        self.stt_requests = 0
+        
+        # State management
+        self.running = True
+        self.current_command = None
+        
+        # Conversation flow
+        self.awaiting_confirmation = False
+        self.pending_action = None
         
         # Audio stream
         self.stream = None
         
-        # Validate model
-        if not os.path.exists(MODEL_PATHS['asr_english']):
-            print(f"[FATAL] Model not found at {MODEL_PATHS['asr_english']}")
-            sys.exit(1)
-        
-        # Load model
-        print(f"[Jarvis] Loading ASR model...")
-        self.model = Model(MODEL_PATHS['asr_english'])
-        
-        # Build vocabulary
-        self._build_vocabulary()
-        
-        print(f"[Jarvis] Ready! Say '{self.config.wake_word}' to activate.")
+        print(f"[Aura] Voice Assistant initialized with Llama Brain")
+        print(f"[Aura] Ready! Say '{self.config.wake_word}' to activate.")
     
-    def _build_vocabulary(self):
-        """Build comprehensive vocabulary"""
-        vocab = ASR_VOCABULARY.get_all_words()
-        
-        # Add app names
+    def _init_groq_client(self):
+        """Initialize Groq client for speech-to-text"""
         try:
-            app_names = REGISTRY.get_installed_app_names()
-            for app in app_names:
-                words = app.lower().split()
-                for word in words:
-                    if word.isalnum() and len(word) > 1:
-                        vocab.add(word)
+            api_key = os.getenv("GROQ_API_KEY") or GROQ_CONFIG.get("api_key")
+            if not api_key:
+                logger.error("GROQ_API_KEY not found in environment or config")
+                sys.exit(1)
+            
+            self.groq_client = Groq(api_key=api_key)
+            logger.info("✓ Groq client initialized for speech-to-text")
         except Exception as e:
-            print(f"[Jarvis] Warning: Could not load app names: {e}")
-        
-        # Add wake word variations
-        for wake_word in self.config.wake_words:
-            for word in wake_word.split():
-                if len(word) > 1:
-                    vocab.add(word.lower())
-        
-        # Convert to sorted list
-        vocab_list = sorted(list(vocab))
-        vocab_list.append("[unk]")
-        
-        # Initialize recognizer
-        self.recognizer = KaldiRecognizer(
-            self.model,
-            self.config.sample_rate,
-            json.dumps(vocab_list)
-        )
-        
-        self.recognizer.SetMaxAlternatives(0)
-        self.recognizer.SetWords(False)
-        
-        print(f"[Jarvis] Vocabulary: {len(vocab_list)} words loaded")
+            logger.error(f"Failed to initialize Groq client: {e}")
+            sys.exit(1)
+    
+    def _init_llama_brain(self):
+        """Initialize Llama 3 brain for natural language understanding"""
+        try:
+            self.llama_brain = AIAssistant(  # Use your existing AIAssistant
+                model="llama-3.3-70b-versatile"
+            )
+            logger.info("✓ AI Brain initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize AI Brain: {e}")
     
     def _fuzzy_match_wake_word(self, text: str) -> tuple:
         """
@@ -199,25 +208,159 @@ class AuraVoiceAssistant:
         return audio.astype(np.int16).tobytes()
     
     def audio_callback(self, indata, frames, time_info, status):
-        """Audio stream callback"""
+        """Audio stream callback with buffer for Groq STT - FIXED"""
         try:
             processed = self.process_audio(indata)
+            
+            # Buffer audio for Groq transcription
+            if self.speech_detected or self.listening_for_command:
+                self.audio_buffer.append(processed)
+                
+                # Check buffer size
+                buffer_duration = len(self.audio_buffer) * (2400 / self.config.sample_rate)
+                if buffer_duration > self.max_buffer_duration:
+                    self.audio_buffer = self.audio_buffer[-int(self.max_buffer_duration * self.config.sample_rate / 2400):]
+            
+            # 🔥 FIX: Use time module properly
+            import time as time_module  # Import with alias to avoid collision
+            current_time = time_module.time()
+            
+            # THROTTLE LOGGING
+            if not hasattr(self, 'last_queue_log_time'):
+                self.last_queue_log_time = 0
+                self.queue_operations = 0
+            
+            self.queue_operations += 1
+            
+            if current_time - self.last_queue_log_time > 10:
+                logger.debug(f"Processed {self.queue_operations} audio queue operations")
+                self.last_queue_log_time = current_time
+                self.queue_operations = 0
+            
             if self.audio_queue.full():
                 try:
                     self.audio_queue.get_nowait()
                 except:
                     pass
+            
             self.audio_queue.put(processed, block=False)
-        except:
-            pass
+            
+        except Exception as e:
+            if not hasattr(self, 'last_error_log_time'):
+                self.last_error_log_time = 0
+            
+            import time as time_module
+            current_time = time_module.time()
+            if current_time - self.last_error_log_time > 5:
+                logger.error(f"Audio callback error: {e}")
+                self.last_error_log_time = current_time
+    
+    def _transcribe_with_groq(self) -> str:
+        """Transcribe buffered audio using Groq API (in-memory WAV)"""
+        # ADD THIS CHECK AT THE BEGINNING
+        # # if not self.stt_enabled:
+        #     # Only log occasionally to reduce noise
+        #     # import random
+        #     if random.random() < 0.01:  # Log only 1% of non-wake audio
+        #         logger.debug(f"STT disabled, ignoring audio buffer ({len(self.audio_buffer)} chunks)")
+        #     self.audio_buffer = []
+        #     return ""
+        
+        if not self.audio_buffer:
+            return ""
+        
+        try:
+            # Combine audio chunks
+            combined_audio = b"".join(self.audio_buffer)
+            audio_data = np.frombuffer(combined_audio, dtype=np.int16)
+            
+            if audio_data.size == 0:
+                return ""
+            
+            import io
+            import soundfile as sf
+            
+            buffer = io.BytesIO()
+            
+            # Write WAV to memory
+            sf.write(
+                buffer,
+                audio_data,
+                self.config.sample_rate,
+                format="WAV",
+                subtype="PCM_16",
+            )
+            buffer.seek(0)
+            
+            duration = audio_data.size / self.config.sample_rate
+            self.stt_requests += 1
+            logger.info(f"Transcribing audio ({duration:.1f}s)...")
+            
+            transcription = self.groq_client.audio.transcriptions.create(
+                file=("audio.wav", buffer.read(), "audio/wav"),
+                model="whisper-large-v3-turbo",
+                response_format="json",
+                language="en",
+            )
+            
+            text = transcription.text.strip()
+            logger.info(f"Transcribed: {text}")
+            
+            self.audio_buffer.clear()
+            return text
+            
+        except Exception as e:
+            logger.error(f"Groq transcription failed: {e}")
+            return ""
+    
+    def _process_with_llama_brain(self, text: str) -> dict:
+        """Process natural language command with Llama 3 brain"""
+        try:
+            if self.llama_brain:
+                logger.info(f"Processing with Llama Brain: {text}")
+                intent = self.llama_brain.understand_intent(text)
+                
+                if intent and intent.get("confidence", 0) > 0.7:
+                    logger.info(f"Llama Brain intent: {intent}")
+                    return {
+                        "status": "success",
+                        "intent": intent,
+                        "source": "llama_brain"
+                    }
+            
+            # Fallback to traditional parsing
+            logger.info(f"Using traditional parser for: {text}")
+            parsed_intent = parse_intent(text)
+            
+            if validate_intent(parsed_intent):
+                return {
+                    "status": "success",
+                    "intent": parsed_intent.to_dict(),
+                    "source": "traditional_parser"
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "Could not understand command",
+                    "source": "traditional_parser"
+                }
+                
+        except Exception as e:
+            logger.error(f"Intent processing failed: {e}")
+            return {
+                "status": "error",
+                "message": f"Processing error: {str(e)}",
+                "source": "error"
+            }
     
     def start(self):
-        """Start voice recognition loop"""
-        print(f"[Jarvis] Listening for wake word: {self.config.wake_word}")
-        print(f"[Jarvis] Learning background noise... (takes ~3 seconds)")
+        """Start voice recognition loop with Groq STT"""
+        print(f"[Aura] Listening for wake word: {self.config.wake_word}")
+        print(f"[Aura] Using Groq cloud speech-to-text")
         
         threshold_reported = False
-        
+        last_threshold_log_time = 0
+        threshold_log_interval = 30  # Log threshold every 30 seconds max
         try:
             # Open audio stream
             self.stream = sd.RawInputStream(
@@ -236,31 +379,47 @@ class AuraVoiceAssistant:
                     data = self.audio_queue.get(timeout=0.1)
                     
                     # Report threshold once
+                    current_time = time.time()
                     if not threshold_reported and len(self.rms_history) >= 30:
-                        print(f"[Jarvis] Noise threshold: {self.adaptive_threshold:.1f}")
-                        print(f"[Jarvis] Ready! Waiting for wake word...")
+                        print(f"[Aura] Noise threshold: {self.adaptive_threshold:.1f}")
+                        print(f"[Aura] Ready! Waiting for wake word...")
                         threshold_reported = True
+                        last_threshold_log_time = current_time
+                    # Periodically log threshold (throttled)
+                    elif threshold_reported and (current_time - last_threshold_log_time > threshold_log_interval):
+                        if len(self.rms_history) >= 10:
+                            logger.debug(f"Current noise threshold: {self.adaptive_threshold:.1f}, Background: {self.background_noise_level:.1f}")
+                            last_threshold_log_time = current_time
+                    # Check for speech completion
+                    if self.speech_detected and self.silence_frames > self.config.silence_threshold:
+                        buffer_duration = len(self.audio_buffer) * (2400 / self.config.sample_rate)
+                        
+                        if buffer_duration >= self.min_buffer_duration:
+                            # Transcribe audio with Groq
+                            text = self._transcribe_with_groq()
+                            
+                            if text:
+                                self._handle_transcription(text)
+                        
+                        self.speech_detected = False
+                        self.audio_buffer = []
                     
-                    # Feed to recognizer
-                    if self.recognizer.AcceptWaveform(data):
-                        result = json.loads(self.recognizer.Result())
-                        self._handle_result(result)
-                    
-                    # Check timeout
+                    # Check timeout for command listening
                     if self.listening_for_command:
                         elapsed = time.time() - self.wake_word_time
                         if elapsed > self.config.wake_word_timeout:
-                            print("[Jarvis] Command timeout.")
+                            print("[Aura] Command timeout.")
                             self.listening_for_command = False
+                            self.audio_buffer = []
                 
                 except queue.Empty:
                     continue
                 except Exception as e:
-                    print(f"[Error] Recognition: {e}")
+                    logger.error(f"Recognition error: {e}")
                     continue
         
         except Exception as e:
-            print(f"[FATAL] Audio error: {e}")
+            logger.error(f"Audio stream error: {e}")
         
         finally:
             if self.stream:
@@ -270,28 +429,12 @@ class AuraVoiceAssistant:
                 except:
                     pass
     
-    def _handle_result(self, result: dict):
-        """Handle recognition result"""
+    
+    def _handle_transcription(self, text: str):
+        """Handle transcribed text with FIXED command extraction"""
         try:
-            text = result.get("text", "").strip()
-            text = text.replace("[unk]", "").strip()
-            
             # Filter short utterances
             if len(text) < 2:
-                return
-            
-            # Check speech duration
-            if self.speech_start_time > 0:
-                speech_duration = time.time() - self.speech_start_time
-                if speech_duration < self.config.min_speech_duration:
-                    self.speech_start_time = 0
-                    return
-            
-            self.speech_start_time = 0
-            
-            # Handle confirmation
-            if self.pending_confirmation:
-                self._handle_confirmation(text)
                 return
             
             # Wake word detection
@@ -304,22 +447,349 @@ class AuraVoiceAssistant:
                 
                 print(f"[WAKE] '{wake_word_used}' detected!")
                 
+                # 🔥 FIX: Clean up command text (remove leading punctuation)
                 if command_text:
-                    # Command in same utterance
-                    print(f"[CMD] {command_text}")
-                    self._process_command(command_text)
-                    self.listening_for_command = False
+                    command_text = command_text.strip().lstrip('.,!?;: ')  # Remove leading punctuation
+                    
+                    if not command_text:
+                        # Just wake word - greet and wait
+                        self._jarvis_greet()
+                    else:
+                        # Immediate command - process it
+                        print(f"[COMMAND] Immediate: {command_text}")
+                        self._process_command_flow(command_text)
                 else:
-                    print(f"[WAKE] Listening for command...")
+                    # Just "Jarvis" - greet and wait for command
+                    self._jarvis_greet()
             
             elif self.listening_for_command:
-                # Process command after wake word
-                print(f"[CMD] {text}")
-                self._process_command(text)
-                self.listening_for_command = False
+                # Command after wake word
+                text = text.strip().lstrip('.,!?;: ')  # Clean this too
+                if text:
+                    self._process_command_flow(text)
+            
+            # Handle confirmation responses
+            elif self.awaiting_confirmation:
+                self._handle_confirmation_flow(text)
         
         except Exception as e:
-            print(f"[Error] Handle result: {e}")
+            logger.error(f"Handle transcription error: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _jarvis_greet(self):
+        """Jarvis greeting for wake word only"""
+        import random
+        greetings = [
+            "Yes, Sir?",
+            "At your service",
+            "System online",
+            "Ready, Sir"
+        ]
+        greeting = random.choice(greetings)
+        self.jarvis_voice.speak(greeting)
+
+    def _process_command_flow(self, command_text: str):
+        """Process command with optimal flow"""
+        print(f"[COMMAND] {command_text}")
+        
+        # Determine command type for appropriate acknowledgment
+        command_type = self._get_command_type(command_text)
+        
+        # Acknowledge immediately (non-blocking)
+        self.jarvis_voice.speak_acknowledgment(command_type)
+        
+        # Process in background
+        threading.Thread(
+            target=self._process_and_execute,
+            args=(command_text, command_type),
+            daemon=True
+        ).start()
+    
+    def _get_command_type(self, command_text: str) -> str:
+        """Determine command type for appropriate acknowledgment"""
+        text = command_text.lower()
+        
+        if any(word in text for word in ["open", "launch", "start"]):
+            return "open"
+        elif any(word in text for word in ["close", "exit", "quit", "kill"]):
+            return "close"
+        elif "play" in text:
+            return "play"
+        elif any(word in text for word in ["search", "find", "google", "look up"]):
+            return "search"
+        elif any(word in text for word in ["what", "how", "why", "when", "where", "who", "explain"]):
+            return "question"
+        return "general"
+    
+    # In voice_service.py - Replace _process_and_execute method
+
+    def _process_and_execute(self, command_text: str, command_type: str):
+        """Background processing of command - LATENCY OPTIMIZED"""
+        try:
+            # 🔥 REMOVED DELAY - Don't wait for acknowledgment to finish
+            # time.sleep(0.2)  # REMOVED THIS!
+            
+            # Process IMMEDIATELY in parallel with acknowledgment
+            
+            if self.llama_brain:
+                try:
+                    logger.info(f"Processing with Llama Brain: {command_text}")
+                    intent = self.llama_brain.understand_intent(command_text)
+                    
+                    if intent and intent.get("confidence", 0) > 0.5:
+                        logger.info(f"Llama Brain intent: {intent}")
+                        intent_result = {
+                            "status": "success",
+                            "intent": intent,
+                            "source": "llama_brain"
+                        }
+                    else:
+                        logger.warning(f"Low confidence from Llama Brain: {intent}")
+                        raise ValueError("Low confidence")
+                
+                except Exception as e:
+                    logger.warning(f"Llama Brain failed, using fallback: {e}")
+                    from .intent_parser import parse_intent, validate_intent
+                    parsed_intent = parse_intent(command_text)
+                    
+                    if validate_intent(parsed_intent):
+                        intent_result = {
+                            "status": "success",
+                            "intent": parsed_intent.to_dict(),
+                            "source": "traditional_parser"
+                        }
+                    else:
+                        intent_result = self._simple_intent_match(command_text)
+            else:
+                logger.info(f"No Llama Brain, using parsers")
+                from .intent_parser import parse_intent, validate_intent
+                parsed_intent = parse_intent(command_text)
+                
+                if validate_intent(parsed_intent):
+                    intent_result = {
+                        "status": "success",
+                        "intent": parsed_intent.to_dict(),
+                        "source": "traditional_parser"
+                    }
+                else:
+                    intent_result = self._simple_intent_match(command_text)
+            
+            # Execute based on result
+            if intent_result["status"] == "success":
+                intent_data = intent_result["intent"]
+                self.current_command = command_text
+                
+                logger.info(f"Executing via {intent_result['source']}: {intent_data}")
+                
+                # Execute based on type
+                if command_type == "question":
+                    self._handle_conversation(intent_data, command_text)
+                else:
+                    self._execute_action(intent_data, command_text)
+            else:
+                logger.error(f"Intent processing failed: {intent_result}")
+                self.jarvis_voice.speak("Command not recognized, Sir")
+        
+        except Exception as e:
+            logger.error(f"Process and execute error: {e}")
+            import traceback
+            traceback.print_exc()
+            self.jarvis_voice.speak("Processing error, Sir")
+
+
+    def _simple_intent_match(self, command_text: str) -> dict:
+        """
+        Simple pattern matching fallback when both Llama and traditional parser fail
+        """
+        text_lower = command_text.lower()
+        
+        # Open commands
+        if any(word in text_lower for word in ["open", "launch", "start"]):
+            for word in text_lower.split():
+                if word not in ["open", "launch", "start", "the", "app", "application"]:
+                    return {
+                        "status": "success",
+                        "intent": {
+                            "action": "open",
+                            "target": word,
+                            "confidence": 0.7,
+                            "parameters": {}
+                        },
+                        "source": "simple_match"
+                    }
+        
+        # Close commands
+        if any(word in text_lower for word in ["close", "exit", "quit"]):
+            for word in text_lower.split():
+                if word not in ["close", "exit", "quit", "the", "app", "application"]:
+                    return {
+                        "status": "success",
+                        "intent": {
+                            "action": "close",
+                            "target": word,
+                            "confidence": 0.7,
+                            "parameters": {}
+                        },
+                        "source": "simple_match"
+                    }
+        
+        # Play commands
+        if "play" in text_lower:
+            # Extract song name (everything after "play")
+            parts = text_lower.split("play", 1)
+            if len(parts) > 1:
+                song = parts[1].strip()
+                # Remove "on spotify/youtube"
+                for platform in ["on spotify", "on youtube", "on amazon"]:
+                    if platform in song:
+                        song = song.replace(platform, "").strip()
+                        platform_name = platform.replace("on ", "")
+                        break
+                else:
+                    platform_name = "youtube"
+                
+                return {
+                    "status": "success",
+                    "intent": {
+                        "action": "play",
+                        "target": song,
+                        "confidence": 0.7,
+                        "parameters": {"platform": platform_name}
+                    },
+                    "source": "simple_match"
+                }
+        
+        # Search commands
+        if any(word in text_lower for word in ["search", "find", "google", "look up"]):
+            # Extract search query
+            for keyword in ["search", "find", "google", "look up"]:
+                if keyword in text_lower:
+                    parts = text_lower.split(keyword, 1)
+                    if len(parts) > 1:
+                        query = parts[1].strip()
+                        return {
+                            "status": "success",
+                            "intent": {
+                                "action": "search",
+                                "target": query,
+                                "confidence": 0.7,
+                                "parameters": {}
+                            },
+                            "source": "simple_match"
+                        }
+        
+        # If nothing matched
+        return {
+            "status": "error",
+            "message": "Could not parse command",
+            "source": "simple_match"
+        }
+    
+    def _handle_conversation(self, intent_data: dict, original_text: str):
+        """Handle conversational query"""
+        try:
+            # Get Jarvis response from brain
+            if self.llama_brain:
+                jarvis_response = self.llama_brain.generate_jarvis_response(original_text, intent_data)
+                
+                if jarvis_response:
+                    self.jarvis_voice.speak(jarvis_response)
+                else:
+                    # Fallback to regular chat
+                    ai_response = self.llama_brain.chat(original_text)
+                    if ai_response:
+                        self.jarvis_voice.speak(ai_response)
+                    else:
+                        self.jarvis_voice.speak("No data available, Sir")
+        
+        except Exception as e:
+            logger.error(f"Conversation error: {e}")
+            self.jarvis_voice.speak("Database error")
+    
+    def _execute_action(self, intent_data: dict, original_text: str):
+        """Execute action command"""
+        try:
+            # Execute the command
+            result = execute_intent(intent_data)
+            
+            # Generate and speak report
+            report = self._generate_action_report(original_text, result)
+            if report:
+                self.jarvis_voice.speak(report)
+            
+            self.commands_processed += 1
+        
+        except Exception as e:
+            logger.error(f"Execute action error: {e}")
+            self.jarvis_voice.speak("Execution failed, Sir")
+    
+    def _generate_action_report(self, command: str, result: dict) -> str:
+        """Generate concise action report"""
+        status = result.get("status", "")
+        message = result.get("message", "")
+        
+        if status == "success":
+            # Extract target from command
+            words = command.lower().split()
+            if len(words) > 1:
+                target = words[-1]
+            else:
+                target = "task"
+            
+            # Simple success messages
+            if "open" in command.lower():
+                return f"{target} opened, Sir"
+            elif "close" in command.lower():
+                return f"{target} closed, Sir"
+            elif "play" in command.lower():
+                return "Playing, Sir"
+            elif "search" in command.lower():
+                return "Search complete, Sir"
+            elif "type" in command.lower():
+                return "Text entered, Sir"
+            else:
+                return "Completed, Sir"
+        
+        elif status == "error":
+            # Brief error messages
+            if "not found" in message.lower():
+                return "Target not found, Sir"
+            elif "failed" in message.lower():
+                return "Action failed, Sir"
+            else:
+                return "Unable to comply, Sir"
+        
+        return ""
+    
+    def _handle_confirmation_flow(self, text: str):
+        """Handle confirmation responses"""
+        text_lower = text.lower()
+        
+        if any(word in text_lower for word in ["yes", "confirm", "do it", "proceed", "affirmative"]):
+            self.jarvis_voice.speak("Confirmed, Sir")
+            if self.pending_action:
+                threading.Thread(
+                    target=self._execute_action,
+                    args=(self.pending_action, self.current_command),
+                    daemon=True
+                ).start()
+        
+        elif any(word in text_lower for word in ["no", "cancel", "abort", "stop", "negative"]):
+            self.jarvis_voice.speak("Cancelled, Sir")
+        
+        self.awaiting_confirmation = False
+        self.pending_action = None
+    
+    def stop(self):
+        """Stop the assistant"""
+        self.running = False
+        self.jarvis_voice.speak("System shutting down")
+        self.jarvis_voice.wait_until_done()
+        self.jarvis_voice.cleanup()
+        
+        print(f"\n[JARVIS] System offline")
+        print(f"[STATS] Commands executed: {self.commands_processed}")
     
     def _fuzzy_match(self, text: str, word_list: list) -> bool:
         """Check if text fuzzy matches any word in list"""
@@ -333,7 +803,7 @@ class AuraVoiceAssistant:
         return False
     
     def _process_command(self, command_text: str):
-        """Process and execute command"""
+        """Process and execute command using Llama Brain or fallback"""
         try:
             # Check cooldown
             current_time = time.time()
@@ -342,36 +812,39 @@ class AuraVoiceAssistant:
             
             self.last_command_time = current_time
             
-            # Parse intent
-            intent = parse_intent(command_text)
+            # Process with Llama Brain
+            result = self._process_with_llama_brain(command_text)
             
-            # Validate
-            if not validate_intent(intent):
-                print("[Jarvis] I didn't understand that command.")
-                return
-            
-            command = intent.to_command()
-            
-            # Check confirmation
-            if self._requires_confirmation(command):
-                self.pending_confirmation = command
-                print(f"[CONFIRM] {command['action'].title()} - Say 'confirm' or 'cancel'")
-                return
-            
-            # Execute async
-            threading.Thread(
-                target=self._execute_command_async,
-                args=(command,),
-                daemon=True
-            ).start()
+            if result["status"] == "success":
+                intent_data = result["intent"]
+                logger.info(f"✓ Intent understood via {result['source']}")
+                
+                # Check if confirmation required
+                if self._requires_confirmation(intent_data):
+                    self.pending_confirmation = intent_data
+                    action = intent_data.get("action", "action").title()
+                    print(f"[CONFIRM] {action} - Say 'confirm' or 'cancel'")
+                    return
+                
+                # Execute command
+                threading.Thread(
+                    target=self._execute_command_async,
+                    args=(intent_data,),
+                    daemon=True
+                ).start()
+            else:
+                print(f"[Aura] I didn't understand: {result.get('message', 'Unknown error')}")
         
         except Exception as e:
-            print(f"[Error] Process command: {e}")
+            logger.error(f"Process command error: {e}")
     
-    def _execute_command_async(self, command: dict):
+    def _execute_command_async(self, intent_data: dict):
         """Execute command asynchronously"""
         try:
-            result = execute_intent(command)
+            # 🔥 DIRECT CALL - Import execute_intent at top of file!
+            # Make sure you have: from .native_opener import execute_intent
+            
+            result = execute_intent(intent_data)  # ✅ This is the correct call
             
             if result["status"] == "success":
                 print(f"[✓] {result['message']}")
@@ -379,15 +852,19 @@ class AuraVoiceAssistant:
                 print(f"[✗] {result['message']}")
             
             self.commands_processed += 1
+            
         except Exception as e:
-            print(f"[Error] Execute: {e}")
+            logger.error(f"Execute command error: {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"[✗] Command execution failed")
     
-    def _requires_confirmation(self, command: dict) -> bool:
+    def _requires_confirmation(self, intent_data: dict) -> bool:
         """Check if command requires confirmation"""
         if not self.config.confirm_destructive:
             return False
         
-        action = command.get("action", "").lower()
+        action = intent_data.get("action", "").lower()
         return action in self.config.critical_actions
     
     def _handle_confirmation(self, text: str):
@@ -396,7 +873,7 @@ class AuraVoiceAssistant:
             text_lower = text.lower()
             
             if self._fuzzy_match(text_lower, self.config.fuzzy_confirm_words):
-                print(f"[Jarvis] Executing...")
+                print(f"[Aura] Executing...")
                 threading.Thread(
                     target=self._execute_command_async,
                     args=(self.pending_confirmation,),
@@ -405,21 +882,24 @@ class AuraVoiceAssistant:
                 self.pending_confirmation = None
             
             elif self._fuzzy_match(text_lower, self.config.fuzzy_cancel_words):
-                print("[Jarvis] Cancelled.")
+                print("[Aura] Cancelled.")
                 self.pending_confirmation = None
             
             else:
-                print("[Jarvis] Say 'confirm' or 'cancel'")
+                print("[Aura] Say 'confirm' or 'cancel'")
         
         except Exception as e:
-            print(f"[Error] Handle confirmation: {e}")
+            logger.error(f"Handle confirmation error: {e}")
             self.pending_confirmation = None
     
     def stop(self):
         """Stop the assistant"""
         self.running = False
-        print(f"[Jarvis] Stopped.")
-        print(f"[Stats] Commands: {self.commands_processed}, Wake words: {self.wake_word_detections}")
+        self.stt_enabled = False  # Reset when stopping
+        print(f"\n[Aura] Voice Assistant stopped.")
+        print(f"[Stats] Commands: {self.commands_processed}")
+        print(f"[Stats] Wake words: {self.wake_word_detections}")
+        print(f"[Stats] STT requests: {self.stt_requests}")
 
 def voice_process_loop(shared_state):
     """Main entry point for voice service"""
@@ -428,9 +908,9 @@ def voice_process_loop(shared_state):
     try:
         assistant.start()
     except KeyboardInterrupt:
-        print("\n[Jarvis] Shutdown requested")
+        print("\n[Aura] Shutdown requested")
     except Exception as e:
-        print(f"[FATAL] Voice service error: {e}")
+        logger.error(f"Voice service error: {e}")
         import traceback
         traceback.print_exc()
     finally:
