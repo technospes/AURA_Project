@@ -1,6 +1,6 @@
 """
-AURA Main Controller (V21.0 - PRODUCTION READY)
-Features: Robust error handling, proper multiprocessing, clean shutdown
+AURA Main Controller (V22.0 - GROQ AI INTEGRATED)
+Features: Groq Llama 3 brain, Vosk wake word, gesture control, multiprocessing
 """
 import sys
 import os
@@ -13,7 +13,7 @@ from ctypes import c_char
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from src.config import validate_config
+    from src.config import validate_config, print_config_summary, get_system_info
     from src.voice_service import voice_process_loop
     print("[Aura] ✓ Core modules loaded")
 except Exception as e:
@@ -107,19 +107,33 @@ class AuraSystem:
     def startup(self, enable_vision=True):
         """Start all system components"""
         print("\n" + "="*60)
-        print("   A U R A   I N T E R F A C E   V 2 1 . 0")
-        print("   PRODUCTION READY - Voice Assistant")
+        print("   A U R A   I N T E R F A C E   V 2 2 . 0")
+        print("   Groq AI Brain + Gesture Control")
         print("="*60)
         
         # Validate configuration
         if not validate_config():
-            print("[FATAL] Configuration validation failed!")
+            print("\n[FATAL] Configuration validation failed!")
+            print("[FATAL] Please fix the errors above and restart.")
             return False
+        
+        # Print configuration summary
+        print_config_summary()
+        
+        # Get system info
+        sys_info = get_system_info()
         
         print("[System] Configuration validated.")
         
+        # Display feature status
+        print("\n[Features]")
+        print(f"  • Wake Word Detection: {'✓ Enabled' if sys_info['vosk_model'] else '✗ Disabled'}")
+        print(f"  • AI Brain (Groq):     {'✓ Enabled' if sys_info['ai_mode'] else '✗ Disabled'}")
+        print(f"  • Gesture Control:     ✓ Enabled")
+        print(f"  • Vision System:       {'✓ Available' if VISION_AVAILABLE else '✗ Disabled'}")
+        
         # Start Voice Process
-        print("[System] Starting Voice Recognition...")
+        print("\n[System] Starting Voice Recognition...")
         try:
             self.voice_process = Process(
                 target=voice_process_loop,
@@ -128,7 +142,7 @@ class AuraSystem:
                 daemon=False
             )
             self.voice_process.start()
-            time.sleep(1.5)  # Wait for initialization
+            time.sleep(2.0)  # Wait for initialization (AI brain needs more time)
             
             if not self.voice_process.is_alive():
                 print("[Error] Voice process failed to start!")
@@ -138,6 +152,8 @@ class AuraSystem:
         
         except Exception as e:
             print(f"[Error] Failed to start voice: {e}")
+            import traceback
+            traceback.print_exc()
             return False
         
         # Start Vision Process (optional)
@@ -165,25 +181,44 @@ class AuraSystem:
         
         self.running = True
         
-        # Print instructions
+        # Print usage instructions
+        self._print_instructions(sys_info)
+        
+        return True
+    
+    def _print_instructions(self, sys_info: dict):
+        """Print usage instructions"""
         print("\n" + "="*60)
-        print(">> System Online")
-        print(">> Say 'Jarvis' followed by your command")
-        print(">>")
-        print(">> Example Commands:")
-        print("   • 'Jarvis, open notepad'")
-        print("   • 'Jarvis, close spotify'")
-        print("   • 'Jarvis, play weekend on spotify'")
-        print("   • 'Jarvis, play Starboy on youtube'")
-        print("   • 'Jarvis, search Python tutorial'")
-        print("   • 'Jarvis, open youtube'")
-        print("   • 'Jarvis, close this tab'")
-        print("   • 'Jarvis, type hello world'")
+        print(">> SYSTEM ONLINE")
+        print("="*60)
+        
+        if sys_info['vosk_model']:
+            print(f">> Wake Word: '{sys_info['wake_word']}'")
+            print(">>")
+            
+            if sys_info['ai_mode']:
+                print(">> AI QUERIES (Groq Llama 3):")
+                print("   • 'Jarvis, what is quantum computing?'")
+                print("   • 'Jarvis, explain machine learning'")
+                print("   • 'Jarvis, tell me about black holes'")
+                print("   • 'Jarvis, how to learn Python?'")
+                print(">>")
+            
+            print(">> GESTURE COMMANDS:")
+            print("   • 'Jarvis, open notepad'")
+            print("   • 'Jarvis, close spotify'")
+            print("   • 'Jarvis, play weekend on spotify'")
+            print("   • 'Jarvis, play Starboy on youtube'")
+            print("   • 'Jarvis, search Python tutorial'")
+            print("   • 'Jarvis, type hello world'")
+            print("   • 'Jarvis, close this tab'")
+        else:
+            print(">> Wake word detection disabled (Vosk model not found)")
+            print(">> System running in limited mode")
+        
         print(">>")
         print(">> Press Ctrl+C to exit")
         print("="*60 + "\n")
-        
-        return True
     
     def monitor(self):
         """Monitor process health"""
@@ -200,7 +235,7 @@ class AuraSystem:
                             daemon=False
                         )
                         self.voice_process.start()
-                        time.sleep(1.5)
+                        time.sleep(2.0)
                     except Exception as e:
                         print(f"[Error] Failed to restart voice: {e}")
                 
@@ -275,7 +310,12 @@ def main():
         finally:
             system.shutdown()
     else:
-        print("[Fatal] System startup failed")
+        print("\n[Fatal] System startup failed")
+        print("[Info] Check the errors above and:")
+        print("  1. Ensure Vosk model is downloaded and extracted")
+        print("  2. Set GROQ_API_KEY environment variable for AI features")
+        print("  3. Run: python -m src.setup_check (if available)")
         sys.exit(1)
+
 if __name__ == "__main__":
     main()
