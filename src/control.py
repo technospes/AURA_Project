@@ -115,7 +115,6 @@ class MouseController:
         delta = current_y - center_y
         
         if abs(delta) > 50:
-            # Smoother Scroll scaling
             speed = int((abs(delta) - 50) / 10) 
             direction = -1 if delta > 0 else 1
             pyautogui.scroll(direction * speed * 20)
