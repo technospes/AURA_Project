@@ -314,19 +314,38 @@ class AuraVoiceAssistant:
             return ""
     
     def _process_with_llama_brain(self, text: str) -> dict:
-        """Process natural language command with Llama 3 brain"""
+        """Process natural language command with Llama 3 brain - FIXED"""
         try:
             if self.llama_brain:
                 logger.info(f"Processing with Llama Brain: {text}")
                 intent = self.llama_brain.understand_intent(text)
                 
-                if intent and intent.get("confidence", 0) > 0.7:
-                    logger.info(f"Llama Brain intent: {intent}")
-                    return {
-                        "status": "success",
-                        "intent": intent,
-                        "source": "llama_brain"
-                    }
+                # ✅ FIX: Check 'status' field instead of 'confidence'
+                if intent and intent.get("status") == "success":
+                    logger.info(f"✓ Llama Brain succeeded")
+                    
+                    # Check if it's a conversational response (research, questions, etc.)
+                    if "response" in intent:
+                        # Return the response directly
+                        return {
+                            "status": "success",
+                            "intent": {
+                                "action": "conversation",
+                                "response": intent["response"],
+                                "confidence": 1.0,
+                                "parameters": {}
+                            },
+                            "source": "llama_brain"
+                        }
+                    else:
+                        # Legacy action-based response
+                        return {
+                            "status": "success",
+                            "intent": intent,
+                            "source": "llama_brain"
+                        }
+                else:
+                    logger.warning(f"Brain returned status: {intent.get('status', 'unknown')}")
             
             # Fallback to traditional parsing
             logger.info(f"Using traditional parser for: {text}")
@@ -525,28 +544,37 @@ class AuraVoiceAssistant:
     # In voice_service.py - Replace _process_and_execute method
 
     def _process_and_execute(self, command_text: str, command_type: str):
-        """Background processing of command - LATENCY OPTIMIZED"""
+        """Background processing of command - FULLY FIXED VERSION"""
         try:
-            # 🔥 REMOVED DELAY - Don't wait for acknowledgment to finish
-            # time.sleep(0.2)  # REMOVED THIS!
-            
-            # Process IMMEDIATELY in parallel with acknowledgment
-            
             if self.llama_brain:
                 try:
                     logger.info(f"Processing with Llama Brain: {command_text}")
                     intent = self.llama_brain.understand_intent(command_text)
                     
-                    if intent and intent.get("confidence", 0) > 0.5:
-                        logger.info(f"Llama Brain intent: {intent}")
-                        intent_result = {
-                            "status": "success",
-                            "intent": intent,
-                            "source": "llama_brain"
-                        }
+                    # ✅ FIX: Check for 'status' field instead of 'confidence'
+                    if intent and intent.get("status") == "success":
+                        logger.info(f"✓ Llama Brain succeeded")
+                        
+                        # For research/conversation responses
+                        if "response" in intent:
+                            # Speak the brain's response directly
+                            response_text = intent["response"]
+                            logger.info(f"Brain response: {response_text[:100]}...")
+                            self.jarvis_voice.speak(response_text)
+                            
+                            # ✅ RETURN EARLY - conversation is complete, don't execute as action
+                            logger.info("✓ Conversation handled, skipping action execution")
+                            return
+                        else:
+                            # Legacy action format - will be executed below
+                            intent_result = {
+                                "status": "success",
+                                "intent": intent,
+                                "source": "llama_brain"
+                            }
                     else:
-                        logger.warning(f"Low confidence from Llama Brain: {intent}")
-                        raise ValueError("Low confidence")
+                        logger.warning(f"Brain returned non-success: {intent}")
+                        raise ValueError("Brain failed")
                 
                 except Exception as e:
                     logger.warning(f"Llama Brain failed, using fallback: {e}")
@@ -575,7 +603,7 @@ class AuraVoiceAssistant:
                 else:
                     intent_result = self._simple_intent_match(command_text)
             
-            # Execute based on result
+            # Execute based on result (only for non-conversation actions)
             if intent_result["status"] == "success":
                 intent_data = intent_result["intent"]
                 self.current_command = command_text
@@ -708,12 +736,16 @@ class AuraVoiceAssistant:
             self.jarvis_voice.speak("Database error")
     
     def _execute_action(self, intent_data: dict, original_text: str):
-        """Execute action command"""
+        """Execute action command - FIXED"""
         try:
-            # Execute the command
-            result = execute_intent(intent_data)
+            # ✅ Extract the actual intent from the wrapper
+            if "intent" in intent_data and isinstance(intent_data["intent"], dict):
+                actual_intent = intent_data["intent"]
+            else:
+                actual_intent = intent_data
             
-            # Generate and speak report
+            result = execute_intent(actual_intent)  # ✅ Now passes correct structure!
+            
             report = self._generate_action_report(original_text, result)
             if report:
                 self.jarvis_voice.speak(report)
@@ -722,6 +754,8 @@ class AuraVoiceAssistant:
         
         except Exception as e:
             logger.error(f"Execute action error: {e}")
+            import traceback
+            traceback.print_exc()
             self.jarvis_voice.speak("Execution failed, Sir")
     
     def _generate_action_report(self, command: str, result: dict) -> str:
