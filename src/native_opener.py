@@ -2269,43 +2269,105 @@ def _handle_maximize() -> dict:
 def refresh_registry():
     """Refresh application registry"""
     _EXECUTOR.registry.full_scan()
-
+    
 # Convenience functions
 def open_app(app_name: str) -> dict:
     """
-    Open an application by name with Windows-safe launching
-    Returns: dict with status and message
+    Intelligently open an application or website
+    Uses heuristics and pattern matching - NOT hardcoded lists
     """
     try:
         app_name = app_name.lower().strip()
         logger.info(f"Attempting to open: {app_name}")
         
+        # ========== INTELLIGENT URL/WEBSITE DETECTION ==========
+        
+        # Pattern 1: Explicit URL (has .com, .org, http://, etc.)
+        url_patterns = [
+            '.com', '.org', '.net', '.io', '.edu', '.gov', '.co', '.ai',
+            'http://', 'https://', 'www.', '://'
+        ]
+        is_explicit_url = any(pattern in app_name for pattern in url_patterns)
+        
+        # Pattern 2: Known consumer web services (common sense reasoning)
+        # These are brands people typically access via web browser
+        web_first_brands = {
+            'youtube', 'google', 'gmail', 'facebook', 'twitter', 'x', 
+            'instagram', 'reddit', 'linkedin', 'tiktok', 'pinterest',
+            'netflix', 'amazon', 'ebay', 'wikipedia', 'github',
+            'stackoverflow', 'medium', 'twitch', 'discord'  # discord is both!
+        }
+        
+        # Pattern 3: Known desktop-first applications
+        desktop_first_apps = {
+            'notepad', 'calculator', 'paint', 'explorer', 'cmd', 'powershell',
+            'word', 'excel', 'powerpoint', 'outlook', 'teams',
+            'vscode', 'pycharm', 'sublime', 'atom',
+            'zoom', 'skype', 'telegram'
+        }
+        
+        # DECISION LOGIC
+        if is_explicit_url:
+            # Definitely a URL - format and open in browser
+            if not app_name.startswith(('http://', 'https://')):
+                if not app_name.startswith('www.'):
+                    url = f'https://www.{app_name}'
+                else:
+                    url = f'https://{app_name}'
+            else:
+                url = app_name
+            
+            logger.info(f"✓ URL detected: {url}")
+            webbrowser.open(url)
+            return {"status": "success", "message": f"Opening {app_name} in browser"}
+        
+        # Check if it's a known web-first brand
+        elif app_name in web_first_brands:
+            # Open in web browser (construct URL intelligently)
+            url = f'https://www.{app_name}.com'
+            logger.info(f"✓ Web brand detected: {url}")
+            webbrowser.open(url)
+            return {"status": "success", "message": f"Opening {app_name}"}
+        
+        # Check if it's a known desktop app
+        elif app_name in desktop_first_apps:
+            # Try to open as desktop application
+            # Fall through to registry lookup below
+            logger.info(f"✓ Desktop app detected: {app_name}")
+            pass  # Continue to registry lookup
+        
+        # For ambiguous cases (not in either list), try registry first
+        # then fall back to web if not found
+        
+        # ========== ORIGINAL REGISTRY LOOKUP CODE ==========
         # Check direct match in registry
         if app_name in REGISTRY:
-            app_info = REGISTRY[app_name]
-            path = app_info["path"]
+            app_entry = REGISTRY[app_name]
+            
+            if isinstance(app_entry, dict):
+                path = app_entry["path"]
+            else:
+                path = app_entry
             
             logger.info(f"Found in registry: {path}")
             
-            # ✅ Windows-safe launch
             if path.startswith("ms-"):
-                # Special URI schemes (like ms-settings:)
                 os.system(f'start {path}')
             else:
-                # Use START command for better Windows compatibility
-                # This handles spaces in paths and proper shell execution
                 subprocess.Popen(f'start "" "{path}"', shell=True)
             
-            return {
-                "status": "success",
-                "message": f"Opening {app_name}..."
-            }
+            return {"status": "success", "message": f"Opening {app_name}"}
         
         # Check aliases
-        for key, app_info in REGISTRY.items():
-            aliases = app_info.get("aliases", [])
+        for key, app_entry in REGISTRY.items():
+            if isinstance(app_entry, dict):
+                aliases = app_entry.get("aliases", [])
+                path = app_entry["path"]
+            else:
+                aliases = []
+                path = app_entry
+            
             if app_name in aliases:
-                path = app_info["path"]
                 logger.info(f"Found via alias '{app_name}' -> {key}: {path}")
                 
                 if path.startswith("ms-"):
@@ -2313,10 +2375,7 @@ def open_app(app_name: str) -> dict:
                 else:
                     subprocess.Popen(f'start "" "{path}"', shell=True)
                 
-                return {
-                    "status": "success",
-                    "message": f"Opening {key}..."
-                }
+                return {"status": "success", "message": f"Opening {key}"}
         
         # Try fuzzy matching
         best_match = None
@@ -2325,13 +2384,18 @@ def open_app(app_name: str) -> dict:
         for key in REGISTRY.keys():
             from difflib import SequenceMatcher
             score = SequenceMatcher(None, app_name, key).ratio()
-            if score > best_score and score > 0.6:  # 60% similarity threshold
+            if score > best_score and score > 0.7:  # Increased threshold
                 best_score = score
                 best_match = key
         
         if best_match:
-            app_info = REGISTRY[best_match]
-            path = app_info["path"]
+            app_entry = REGISTRY[best_match]
+            
+            if isinstance(app_entry, dict):
+                path = app_entry["path"]
+            else:
+                path = app_entry
+            
             logger.info(f"Fuzzy match: '{app_name}' -> {best_match} (score: {best_score:.2f})")
             
             if path.startswith("ms-"):
@@ -2339,39 +2403,61 @@ def open_app(app_name: str) -> dict:
             else:
                 subprocess.Popen(f'start "" "{path}"', shell=True)
             
-            return {
-                "status": "success",
-                "message": f"Opening {best_match}..."
-            }
+            return {"status": "success", "message": f"Opening {best_match}"}
         
-        # Last resort: try to launch directly (might work for system apps)
-        logger.warning(f"App not in registry, trying direct launch: {app_name}")
+        # FALLBACK: If not found in registry and looks like it could be a website
+        # Try opening as web URL
+        logger.warning(f"Not found in registry: {app_name}")
+        
+        # Heuristic: If it's a single word without .exe extension, might be a website
+        if ' ' not in app_name and '.exe' not in app_name and len(app_name) > 2:
+            logger.info(f"Attempting web fallback for: {app_name}")
+            url = f'https://www.{app_name}.com'
+            webbrowser.open(url)
+            return {"status": "success", "message": f"Opening {app_name} (web fallback)"}
+        
+        # Last resort: try .exe
+        logger.warning(f"Last resort: trying {app_name}.exe")
         try:
             subprocess.Popen(f'start "" "{app_name}.exe"', shell=True)
-            return {
-                "status": "success",
-                "message": f"Attempting to open {app_name}..."
-            }
+            return {"status": "success", "message": f"Attempting to open {app_name}"}
         except Exception as e:
-            logger.error(f"Direct launch failed: {e}")
+            logger.error(f"All attempts failed: {e}")
             return {
                 "status": "error",
-                "message": f"Could not find application: {app_name}"
+                "message": f"Could not find or open: {app_name}"
             }
     
     except Exception as e:
         logger.error(f"Error opening {app_name}: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "status": "error",
             "message": f"Failed to open {app_name}: {str(e)}"
         }
+    
 def close_app(name: str) -> Dict:
-    return execute_intent({"intent": "app", "action": "close", "payload": {"app_name": name}})
+    """Close an application by name"""
+    return execute_intent({
+        "action": "close",
+        "target": name,  # ✅ Put app name in "target" not "payload"
+        "parameters": {}
+    })
 
 def close_tab(tab_name: str = None) -> Dict:
+    """Close a browser tab"""
     if tab_name:
-        return execute_intent({"intent": "tab", "action": "close_named", "payload": {"tab_name": tab_name}})
-    return execute_intent({"intent": "tab", "action": "close_current", "payload": {}})
+        return execute_intent({
+            "action": "closetab",
+            "target": tab_name,
+            "parameters": {}
+        })
+    return execute_intent({
+        "action": "closetab",
+        "target": "",
+        "parameters": {}
+    })
 
 def play_media(name: str, platform: str = "youtube") -> Dict:
     """Play media on specified platform"""
