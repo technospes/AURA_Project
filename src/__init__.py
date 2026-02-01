@@ -1,10 +1,10 @@
 """
-AURA Voice Assistant - Core Module (V10.0 Production)
-Zero-hallucination personal assistant system
+JARVIS Voice Assistant - Pure AI Agent Mode (V23.0)
+Complete AI Agent with local wake word detection
 """
 
-__version__ = "10.0.0"
-__author__ = "Aura Development Team"
+__version__ = "23.0.0"
+__author__ = "Jarvis AI Development Team"
 
 # ============================================================================
 # SHARED STATE FOR MULTIPROCESSING
@@ -46,7 +46,6 @@ try:
         CAM_HEIGHT,
         MODEL_REGISTRY,
         ModelType,
-        EXACT_PATTERNS,
         validate_config,
         get_config_summary
     )
@@ -59,11 +58,9 @@ try:
     )
     
     from .native_opener import (
-        execute_intent,
         open_app,
         close_app,
-        search_web,
-        refresh_registry
+        search_web
     )
     
     from .voice_service import (
@@ -71,10 +68,10 @@ try:
         voice_process_loop
     )
     
-    print("[Aura] ✓ All modules loaded successfully")
+    print("[Jarvis] ✓ All modules loaded successfully")
 
 except ImportError as e:
-    print(f"[Aura] Warning: Import failed: {e}")
+    print(f"[Jarvis] Warning: Import failed: {e}")
     
     # Provide fallbacks for missing imports
     VOICE_CONFIG = None
@@ -114,11 +111,9 @@ __all__ = [
     'voice_process_loop',
     'parse_intent',
     'validate_intent',
-    'execute_intent',
     'open_app',
     'close_app',
     'search_web',
-    'refresh_registry',
     'validate_config',
     'get_config_summary',
     'get_supported_commands',
@@ -133,13 +128,16 @@ def get_version_info():
     return {
         "version": __version__,
         "author": __author__,
+        "mode": "Pure AI Agent",
         "features": [
-            "Zero-hallucination ASR",
-            "Exact command matching",
-            "Production-grade error handling",
-            "Multi-threaded processing",
-            "Context awareness",
-            "Wake word detection"
+            "Vosk local wake word detection",
+            "Groq Llama complete AI agent",
+            "NO hardcoded patterns",
+            "Autonomous decision making",
+            "Multi-tool execution",
+            "Research capabilities",
+            "Smart model selection",
+            "Context awareness"
         ]
     }
 
@@ -152,41 +150,30 @@ def check_dependencies():
         "vosk": False,
         "sounddevice": False,
         "numpy": False,
-        "pyautogui": False
+        "pyautogui": False,
+        "groq": False,
+        "edge_tts": False,
+        "pygame": False,
+        "ddgs": False
     }
     
-    try:
-        import vosk
-        dependencies["vosk"] = True
-    except ImportError:
-        pass
-    
-    try:
-        import sounddevice
-        dependencies["sounddevice"] = True
-    except ImportError:
-        pass
-    
-    try:
-        import numpy
-        dependencies["numpy"] = True
-    except ImportError:
-        pass
-    
-    try:
-        import pyautogui
-        dependencies["pyautogui"] = True
-    except ImportError:
-        pass
+    for module_name in dependencies.keys():
+        try:
+            __import__(module_name)
+            dependencies[module_name] = True
+        except ImportError:
+            pass
     
     return dependencies
 
 def print_status():
     """Print system status"""
     print("\n" + "="*60)
-    print("AURA VOICE ASSISTANT - SYSTEM STATUS")
+    print("JARVIS AI VOICE ASSISTANT - SYSTEM STATUS")
     print("="*60)
     print(f"Version: {__version__}")
+    print(f"Mode: Pure AI Agent (No Hardcoded Patterns)")
+    print(f"Architecture: Vosk (Wake Word) → Llama (AI Brain)")
     
     deps = check_dependencies()
     print("\nDependencies:")
@@ -209,4 +196,4 @@ if __name__ != "__main__":
     deps = check_dependencies()
     missing = [name for name, installed in deps.items() if not installed]
     if missing:
-        print(f"[Aura] Missing: {', '.join(missing)}")
+        print(f"[Jarvis] Missing: {', '.join(missing)}")
