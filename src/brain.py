@@ -41,6 +41,74 @@ try:
 except ImportError as e:
     logger.warning(f"Production features not available: {e}")
     PRODUCTION_MODE = False
+
+class ModelSelector:
+    """Smart model selection to minimize token usage"""
+    FAST_MODEL = "llama-3.1-8b-instant"
+    SMART_MODEL = "llama-3.3-70b-versatile"
+    
+    # Keywords that indicate complex queries needing smart model
+    COMPLEX_KEYWORDS = [
+        'research', 'analyze', 'compare', 'explain in detail',
+        'comprehensive', 'deep dive', 'summarize article',
+        'write essay', 'create report', 'complex'
+    ]
+    
+    # Simple command patterns (always use fast model)
+    SIMPLE_PATTERNS = [
+        r'^(open|close|play|pause|stop|start|launch)\s+',
+        r'^(search|google|find)\s+',
+        r'^(type|write|enter)\s+',
+        r'^close\s+tab',
+        r'^(what|show|get)\s+(time|date|weather)',
+    ]
+    
+    @classmethod
+    def select_model(cls, command: str, tool_name: str = None) -> str:
+        """
+        Select appropriate model based on command complexity
+        
+        Args:
+            command: User's command text
+            tool_name: Name of tool being called (if known)
+            
+        Returns:
+            Model name to use
+        """
+        command_lower = command.lower().strip()
+        
+        # 1. Force smart model for research tool
+        if tool_name == "deep_research":
+            logger.info(f"🧠 Using SMART model for: {tool_name}")
+            return cls.SMART_MODEL
+        
+        # 2. Check for complex keywords
+        for keyword in cls.COMPLEX_KEYWORDS:
+            if keyword in command_lower:
+                logger.info(f"🧠 Using SMART model (detected: {keyword})")
+                return cls.SMART_MODEL
+        
+        # 3. Use fast model for simple patterns
+        import re
+        for pattern in cls.SIMPLE_PATTERNS:
+            if re.match(pattern, command_lower):
+                logger.info(f"⚡ Using FAST model (simple pattern)")
+                return cls.FAST_MODEL
+        
+        # 4. Fast model for short commands
+        if len(command.split()) <= 5:
+            logger.info(f"⚡ Using FAST model (short command)")
+            return cls.FAST_MODEL
+        
+        # 5. Fast model for medium-length queries
+        if len(command.split()) <= 15:
+            logger.info(f"⚡ Using FAST model (medium query)")
+            return cls.FAST_MODEL
+        
+        # 6. Smart model for long, complex queries
+        logger.info(f"🧠 Using SMART model (long query)")
+        return cls.SMART_MODEL
+    
 @dataclass
 class ToolDefinition:
     """Data class for tool definitions"""
@@ -64,7 +132,7 @@ class AIAssistant:
     - Tool usage statistics
     """
     
-    def __init__(self, model: str = "llama-3.3-70b-versatile"):
+    def __init__(self, model: str = "llama-3.1-8b-instant"):
         """Initialize AI Assistant with production features"""
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
         self.model = model
@@ -80,14 +148,17 @@ class AIAssistant:
         
         # Statistics
         self.stats = {
-            "commands_processed": 0,
-            "tools_used": {},
-            "research_queries": 0,
-            "cache_hits": 0,
-            "verification_checks": 0,  # NEW
-            "retries_attempted": 0,    # NEW
-            "self_corrections": 0       # NEW
-        }
+        "commands_processed": 0,
+        "tools_used": {},
+        "research_queries": 0,
+        "cache_hits": 0,
+        "verification_checks": 0,
+        "retries_attempted": 0,
+        "self_corrections": 0,
+        "fast_model_calls": 0,
+        "smart_model_calls": 0,
+        "tokens_saved_estimate": 0
+    }
         
         # 🔥 PRODUCTION FEATURES
         if PRODUCTION_MODE:
@@ -1145,9 +1216,14 @@ Return ONLY the JSON object above. Be factual and cite patterns from sources."""
         self.history.append({"role": "user", "content": enhanced_input})
         
         try:
-            # Call Groq with all tools
+            selected_model = ModelSelector.select_model(user_input)
+            if selected_model == ModelSelector.FAST_MODEL:
+                self.stats["fast_model_calls"] += 1
+                self.stats["tokens_saved_estimate"] += 2500
+            else:
+                self.stats["smart_model_calls"] += 1
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=selected_model,
                 messages=self.history,
                 tools=self.tools,
                 tool_choice="auto",
