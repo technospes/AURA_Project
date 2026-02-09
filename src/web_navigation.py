@@ -210,7 +210,7 @@ class AutonomousWebNavigator:
             logger.info(f"🔍 Searching for: {query}")
             
             # Use DuckDuckGo for search (privacy-friendly)
-            from ddgs import DDGS
+            from duckduckgo_search import DDGS
             
             results = []
             visited_pages = []
