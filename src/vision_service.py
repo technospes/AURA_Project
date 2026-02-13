@@ -27,7 +27,7 @@ pyautogui.PAUSE = 0
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-DEBUG = True  # Set False for production (removes display overhead)
+DEBUG = False  # Set False for production (removes display overhead)
 
 class GestureThresholds:
     """Centralized gesture detection thresholds"""
