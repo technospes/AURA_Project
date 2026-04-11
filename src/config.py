@@ -70,7 +70,90 @@ class VoiceConfig:
     wake_word: str = "jarvis"
     wake_words: List[str] = field(default_factory=lambda: [
         "jarvis", "jarves", "jarvish", "jarbes", "jarvas", "jarvus",
-        "hey jarvis", "ok jarvis", "yo jarvis",
+        "hey jarvis", "ok jarvis", "yo jarvis",'jarvis',
+            'jarvis',  # With comma
+            'hey jarvis',
+            'ok jarvis',
+            'yo jarvis',
+            'listen jarvis',
+            'hello jarvis',
+            'jarvis listen',
+            
+            # Common mispronunciations/misrecognitions
+            'jarviz',    
+            'jarvas',
+            'jarvus',
+            'jarvez',
+            'jervis',
+            'jerviz',
+            'jerwis',
+            'jarvish',
+            'jarvys',
+            'jarvus',
+            'jarvas',
+            
+            # Short/partial detections
+            'jarvi',
+            'jarv',
+            'jarvy',
+            'jerv',
+            'jervy',
+            
+            # With different phonetics
+            'jar vis',  # Two words
+            'jar-vis',  # Hyphenated
+            'jar ves',
+            'jarves',
+            'jharvis',
+            'jharvish',
+            
+            # Accent variations
+            'jaavis',  # Rolling 'r' omission
+            'javvis',  # Double 'v'
+            'jarfis',  # 'v' -> 'f' confusion
+            'charvis',  # 'j' -> 'ch' confusion
+            'yarvis',  # 'j' -> 'y' confusion
+            'zharvis',  # 'j' -> 'zh' confusion
+            
+            # Whisper/TTS misrecognitions
+            'jarvis\'s',
+            'jarvis is',
+            'jarvis the',
+            'jarvis can',
+            
+            # AI model common hallucinations
+            'garvis',  # 'j' -> 'g' confusion
+            'carvis',  # 'j' -> 'c' confusion
+            'harvis',  # 'j' -> 'h' confusion
+            'marvis',  # 'j' -> 'm' confusion
+            
+            # Phonetic variations for non-English speakers
+            'jarwiz',
+            'jarwish',
+            'jarwez',
+            'jarweez',
+            'jarveez',
+            'jerveez',
+            
+            # Sound-alike names
+            'harvis',  # Like "Harvis"
+            'marvis',  # Like "Marvis"
+            'garvis',  # Like "Garvis"
+            
+            # Quick/slurred speech
+            'jarvisss',  # Extended 's'
+            'jarvis\'',  # With apostrophe
+            'jarvis?',  # With question mark
+            
+            # With filler words
+            'um jarvis',
+            'ah jarvis',
+            'like jarvis',
+            'so jarvis',
+            
+            # Whispered/silent versions
+            'j...arvis',  # Pause in middle
+            'ja...rvis',  # Pause in middle
     ])
     wake_word_confidence: float = 0.75
     wake_word_timeout: float = 5.0

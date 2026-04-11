@@ -70,10 +70,10 @@ class ZeroApiRouter:
         'close_app': re.compile(r'^close\s+(?:the\s+)?(chrome|firefox|edge|spotify|notepad|calculator|discord|vscode|code|visual\s+studio|word|excel|powerpoint|explorer|cmd|terminal|paint|vlc|teams|zoom|skype|current\s+app|active\s+app|app)', re.IGNORECASE),
         'close_tab': re.compile(r'^close\s+(?:the\s+)?(tab|current\s+tab|this\s+tab|browser\s+tab)', re.IGNORECASE),
         
-        # PLAY commands - IMPROVED: extracts song names properly
+        # PLAY commands - FIXED: Non-greedy capture with explicit platform
         'play_music': re.compile(r'^play\s+(?:music|song|track|audio)\s+(?:by\s+)?(.+)', re.IGNORECASE),
-        'play_on_youtube': re.compile(r'^play\s+(.+)\s+(?:on\s+)?youtube', re.IGNORECASE),
-        'play_on_spotify': re.compile(r'^play\s+(.+?)\s+on\s+spotify', re.IGNORECASE),
+        'play_on_youtube': re.compile(r'^play\s+(.+?)\s+on\s+youtube', re.IGNORECASE),  # ✅ FIXED: (.+?) non-greedy
+        'play_on_spotify': re.compile(r'^play\s+(.+?)\s+on\s+spotify', re.IGNORECASE),  # ✅ Already correct
         'play_video': re.compile(r'^play\s+(.+)', re.IGNORECASE),
         
         # SEARCH commands - IMPROVED

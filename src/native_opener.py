@@ -2444,7 +2444,9 @@ def close_app(name: str) -> Dict:
         "target": name,  # ✅ Put app name in "target" not "payload"
         "parameters": {}
     })
-
+    
+def is_similar(a, b, threshold=0.7):
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio() > threshold
 def close_tab(tab_name: str = None) -> Dict:
     """Close a browser tab"""
     if tab_name:

@@ -90,7 +90,7 @@ except ImportError as e:
 __all__ = [
     # Core classes
     'SharedState',
-    'AuraVoiceAssistant',
+    'JarvisVoiceService',
     
     # Configuration
     'VOICE_CONFIG',

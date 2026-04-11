@@ -18,7 +18,6 @@ from functools import lru_cache
 from pathlib import Path
 import hashlib
 import re
-
 # Import your existing tools
 from src.native_opener import open_app, close_app, play_media, search_web, close_tab
 
@@ -59,7 +58,7 @@ class ModelSelector:
         r'^(open|close|play|pause|stop|start|launch)\s+',
         r'^(search|google|find)\s+',
         r'^(type|write|enter)\s+',
-        r'^close\s+tab',
+        r'^close\s+(?:the\s+)?tab',
         r'^(what|show|get)\s+(time|date|weather)',
     ]
     
@@ -68,12 +67,22 @@ class ModelSelector:
         """
         Select appropriate model based on command complexity
         
+        TEMPORARY FIX: llama-3.3-70b-versatile has tool calling issues
+        Using FAST model for all queries until Groq fixes it.
+        
         Args:
             command: User's command text
             tool_name: Name of tool being called (if known)
             
         Returns:
             Model name to use
+        """
+        # TEMPORARY: Always use FAST model due to llama-3.3-70b tool calling bug
+        logger.info(f"⚡ Using FAST model (SMART model temporarily disabled)")
+        return cls.FAST_MODEL
+        
+        # TODO: Re-enable smart model selection once Groq fixes llama-3.3-70b
+        # Original logic below (commented out):
         """
         command_lower = command.lower().strip()
         
@@ -108,6 +117,7 @@ class ModelSelector:
         # 6. Smart model for long, complex queries
         logger.info(f"🧠 Using SMART model (long query)")
         return cls.SMART_MODEL
+        """
     
 @dataclass
 class ToolDefinition:
@@ -239,6 +249,32 @@ class AIAssistant:
     2. ALWAYS use the native tool calling mechanism provided by the API
     3. The system will automatically convert your tool_use intentions into proper API calls
     4. DO NOT hallucinate function syntax - just request the tool naturally
+
+    MEMORY INTELLIGENCE - CRITICAL:
+    When user shares personal information, preferences, or facts about themselves, you MUST:
+    1. DETECT preference patterns:
+       - "I like/prefer/love/enjoy [X]"
+       - "My favorite/preferred [X] is [Y]"
+       - "I use [X] for [Y]"  
+       - "My birthday is [date]"
+       - "Remember that I [fact]"
+    2. IMMEDIATELY call remember_fact tool to store it
+    3. THEN respond with brief acknowledgment
+
+    Examples of auto-storing:
+    - User: "I prefer Python for web development"
+      → FIRST: remember_fact(key="web_dev_language", value="Python")
+      → THEN: Respond "Noted, Sir. I'll remember you prefer Python for web."
+    
+    - User: "I like C++ for DSA"
+      → FIRST: remember_fact(key="dsa_language", value="C++")
+      → THEN: Respond "Remembered, Sir."
+    
+    - User: "My birthday is June 15"
+      → FIRST: remember_fact(key="birthday", value="June 15")
+      → THEN: Respond "I've noted your birthday, Sir."
+
+    DO NOT just acknowledge - STORE THE INFORMATION FIRST using remember_fact, then respond.
 
     JARVIS PERSONALITY:
     1. BRIEF for simple tasks - 1 sentence maximum
@@ -966,8 +1002,32 @@ Return ONLY the JSON object above. Be factual and cite patterns from sources."""
         return None
 
     # ========================================================================
-    # FILE OPERATIONS (NEW)
+    # FILE OPERATIONS (NEW + ENHANCED)
     # ========================================================================
+    
+    def _resolve_desktop_path(self, filename: str) -> str:
+        """
+        ✅ NEW: Resolve Desktop path for current user
+        Handles Windows Desktop (including OneDrive synced Desktop)
+        """
+        import os
+        from pathlib import Path
+        
+        # Windows Desktop locations (in priority order)
+        desktop_paths = [
+            Path.home() / "Desktop",  # Standard Desktop
+            Path.home() / "OneDrive" / "Desktop",  # OneDrive Desktop
+            Path.home() / "OneDrive" / "Bureau",  # French OneDrive
+            Path.home() / "Bureau",  # French Desktop
+        ]
+        
+        # Find first existing Desktop
+        for desktop in desktop_paths:
+            if desktop.exists():
+                return str(desktop / filename)
+        
+        # Fallback to standard Desktop path (will be created if needed)
+        return str(Path.home() / "Desktop" / filename)
     
     def _read_file(self, filepath: str) -> Dict[str, Any]:
         """Read file contents safely"""
@@ -996,8 +1056,16 @@ Return ONLY the JSON object above. Be factual and cite patterns from sources."""
             return {"status": "error", "message": f"Read failed: {str(e)}"}
     
     def _write_file(self, filepath: str, content: str, mode: str = "overwrite") -> Dict[str, Any]:
-        """Write content to file safely"""
+        """Write content to file safely with automatic Desktop path resolution"""
         try:
+            # ✅ ENHANCEMENT: Auto-resolve Desktop paths
+            if "desktop" in filepath.lower() and not os.path.isabs(filepath):
+                # Extract just the filename
+                filename = os.path.basename(filepath)
+                # Resolve to actual Desktop path
+                filepath = self._resolve_desktop_path(filename)
+                logger.info(f"📍 Resolved Desktop path: {filepath}")
+            
             path = Path(filepath)
             
             # Create parent directories
@@ -1008,6 +1076,8 @@ Return ONLY the JSON object above. Be factual and cite patterns from sources."""
             
             with open(path, write_mode, encoding='utf-8') as f:
                 f.write(content)
+            
+            logger.info(f"📝 File written: {filepath} ({len(content)} chars)")
             
             return {
                 "status": "success",
