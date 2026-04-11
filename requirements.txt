@@ -1,29 +1,35 @@
-# requirements.txt
-
-# Core dependencies
+# Core
 numpy==1.24.3
-opencv-python==4.8.1.78
+opencv-contrib-python==4.11.0.86
 mediapipe==0.10.8
+Pillow==10.1.0
 
-# Voice recognition
+# Voice
 vosk==0.3.45
-speechrecognition==3.10.0
+SpeechRecognition==3.10.0
 sounddevice==0.4.6
-PyAudio==0.2.14  # May need for some audio input
 
-# Text-to-speech
+# TTS
 pyttsx3==2.90
+pygame==2.5.2
+edge-tts==7.2.8
 
-# System control
+# AI / APIs
+groq==1.1.2
+requests==2.32.3
+duckduckgo-search==6.1.7
+beautifulsoup4==4.12.3
+
+# Env
+python-dotenv==1.0.1
+
+# Automation
 pyautogui==0.9.54
 psutil==5.9.6
 pywin32==306
 AppOpener==1.7
 
-# Utilities
+# Utils
 cffi==1.16.0
-Pillow==10.1.0  # Image processing
-
-# For development
-colorama==0.4.6  # Colored terminal output
-tqdm==4.66.1  # Progress bars
+colorama==0.4.6
+tqdm==4.66.1
