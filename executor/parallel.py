@@ -78,7 +78,7 @@ class ParallelExecutionMixin:
                 self._step_results = all_results
             else:
                 # Multiple steps — execute in parallel
-                logger.info(f"  ⚡ Parallel group {group_id}: {len(group_steps)} steps")
+                logger.info(f"   Parallel group {group_id}: {len(group_steps)} steps")
                 tasks = []
                 indices = []
                 for idx, step in group_steps:
