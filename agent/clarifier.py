@@ -84,7 +84,7 @@ class CommandSplitter:
         validated = self._validate_parts(parts)
 
         if len(validated) > 1:
-            logger.info(f"🔀 Split {len(validated)} commands: {validated}")
+            logger.info(f" Split {len(validated)} commands: {validated}")
 
         return validated if validated else [text]
 
@@ -294,7 +294,7 @@ class SmartClarifier:
                 filled = self._try_fill_from_memory(slot, entities, memory_prefs)
                 if filled:
                     entities[slot] = filled
-                    logger.info(f"📝 Auto-filled '{slot}' from memory: {filled}")
+                    logger.info(f" Auto-filled '{slot}' from memory: {filled}")
                     continue
             still_missing.append(slot)
 

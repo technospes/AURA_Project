@@ -76,10 +76,10 @@ class Task:
     def summary(self) -> str:
         status_emoji = {
             TaskStatus.PENDING:   "⏳",
-            TaskStatus.RUNNING:   "⚙️",
-            TaskStatus.DONE:      "✅",
-            TaskStatus.FAILED:    "❌",
-            TaskStatus.CANCELLED: "🚫",
+            TaskStatus.RUNNING:   "️",
+            TaskStatus.DONE:      "",
+            TaskStatus.FAILED:    "",
+            TaskStatus.CANCELLED: "",
         }
         emoji = status_emoji.get(self.status, "?")
         dur = f" ({self.duration_seconds:.1f}s)" if self.duration_seconds else ""
@@ -100,6 +100,9 @@ class BackgroundTaskManager:
         self._on_notify = on_notify  # Called when a task needs to speak a result
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._running_handles: Dict[str, asyncio.Task] = {}
+        # ISSUE 5: hook called when any task finishes so the state machine
+        # can drive BACKGROUND → IDLE without polling
+        self._bg_complete_hook: Optional[Callable[[], None]] = None
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         """Set the event loop (called from voice process)."""
@@ -138,29 +141,58 @@ class BackgroundTaskManager:
                 self._run_task(task_id, coro),
                 self._loop
             )
-            logger.info(f"📋 Task submitted: [{task_id}] {name}")
+            # Store handle so cancel() can actually reach the asyncio task
+            self._running_handles[task_id] = handle
+            logger.info(f" Task submitted: [{task_id}] {name}")
         else:
             logger.warning(f"No event loop — task queued: {name}")
 
         return task_id
 
-    def cancel(self, task_id: str) -> bool:
-        """Cancel a running or pending task."""
-        task = self._tasks.get(task_id)
+    def cancel(self, task_id_or_name: str) -> bool:
+        """
+        Cancel a running or pending task by ID *or* name.
+        Accepts either form so advisor.cancel_current_research() and the
+        is_running() deduplication guard both work with a single API.
+        """
+        task = self._tasks.get(task_id_or_name)
+        if task is None:
+            task = next(
+                (t for t in self._tasks.values()
+                 if t.name == task_id_or_name and t.is_active),
+                None,
+            )
         if not task:
             return False
         if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
             return False
 
-        # Cancel the asyncio task
-        handle = self._running_handles.get(task_id)
+        handle = self._running_handles.get(task.id)
         if handle:
             handle.cancel()
 
-        task.status = TaskStatus.CANCELLED
+        task.status       = TaskStatus.CANCELLED
         task.completed_at = time.time()
-        logger.info(f"🚫 Task cancelled: [{task_id}] {task.name}")
+        logger.info(f" Task cancelled: [{task.id}] {task.name}")
         return True
+
+    def is_running(self, name_or_id: str) -> bool:
+        """
+        Return True if any task matching the given name OR id is PENDING/RUNNING.
+        Used by advisor deduplication and the state machine BACKGROUND guard.
+        """
+        for task in self._tasks.values():
+            if task.is_active and (task.id == name_or_id or task.name == name_or_id):
+                return True
+        return False
+
+    def register_bg_complete_hook(self, hook: Callable[[], None]) -> None:
+        """
+        ISSUE 5 FIX: Register a zero-arg callback that fires whenever ANY
+        background task finishes (DONE, FAILED, or CANCELLED).
+        VoiceService uses this to drive the BACKGROUND → IDLE transition.
+        """
+        self._bg_complete_hook = hook
 
     def get_status(self, task_id: str) -> Optional[Task]:
         return self._tasks.get(task_id)
@@ -214,7 +246,7 @@ class BackgroundTaskManager:
             task.completed_at = time.time()
             task.progress_message = "Complete"
             
-            logger.info(f"✅ Task done: [{task_id}] {task.name} ({task.duration_seconds:.1f}s)")
+            logger.info(f" Task done: [{task_id}] {task.name} ({task.duration_seconds:.1f}s)")
 
             # Force TTS Notification Even If Loop Is Busy
             if task.notify_on_complete and self._on_notify:
@@ -230,13 +262,20 @@ class BackgroundTaskManager:
             task.error = str(e)
             task.completed_at = time.time()
             task.progress_message = f"Failed: {e}"
-            logger.error(f"❌ Task failed: [{task_id}] {task.name}: {e}")
+            logger.error(f" Task failed: [{task_id}] {task.name}: {e}")
 
             if task.notify_on_complete and self._on_notify:
                 self._on_notify(f"The background task encountered an error, Sir. {str(e)[:80]}")
 
         finally:
             self._running_handles.pop(task_id, None)
+            # ISSUE 5: notify state machine that this task is finished
+            # (fires regardless of success / failure / cancellation)
+            if self._bg_complete_hook:
+                try:
+                    self._bg_complete_hook()
+                except Exception as hook_err:
+                    logger.debug(f"[BTM] bg_complete_hook error: {hook_err}")
 
     def _build_completion_message(self, task: Task) -> str:
         """Build a natural speech notification for task completion."""
