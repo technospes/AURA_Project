@@ -590,9 +590,6 @@ Distributed under the MIT License. See `LICENSE` for details.
 
 ---
 
-https://github.com/user-attachments/assets/bef200b3-940e-4128-9dc0-7df4cb3937ab
-
-
 
 ## Author
 
