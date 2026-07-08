@@ -1,25 +1,3 @@
-"""
-EXECUTOR RUNNER — Interrupt-Aware + Structured Error Handling
-==============================================================
-PATCH: Add these two things to your existing executor/runner.py
-
-CHANGE 1 — Import and check INTERRUPT_FLAG between steps:
-  Before each step execution, check if user said "stop".
-  If interrupted, cancel remaining steps gracefully.
-
-CHANGE 2 — Structured error boundaries:
-  Every tool.execute() call is wrapped so exceptions never propagate
-  as raw Python errors. They become structured failure dicts with
-  user-friendly messages.
-
-HOW TO APPLY:
-  Copy this file to executor/runner.py and it replaces the file
-  you uploaded. All your existing tool classes (AppLauncherTool, etc.)
-  are preserved — only _execute_step() and run_plan() are changed.
-
-  OR apply just the diffs marked with # PATCHED below.
-"""
-
 import asyncio
 import logging
 import time
@@ -76,7 +54,7 @@ async def run_plan_patched(self, plan: List[Dict], intent: Dict, context: Dict) 
     for i, step in enumerate(plan):
         # ── INTERRUPT CHECK ────────────────────────────────────────────
         if INTERRUPT_FLAG.is_set():
-            logger.info(f"⚡ Execution interrupted at step {i+1}/{total}")
+            logger.info(f" Execution interrupted at step {i+1}/{total}")
             # Add cancelled result for remaining steps
             self._step_results.append({
                 "step": i,
@@ -100,16 +78,16 @@ async def run_plan_patched(self, plan: List[Dict], intent: Dict, context: Dict) 
                 "duration_ms": 0
             }
             self._step_results.append(result)
-            logger.warning(f"  ✗ Step {i+1} skipped (dependency failed)")
+            logger.warning(f"   Step {i+1} skipped (dependency failed)")
             continue
 
         result = await _execute_with_retry_patched(self, step, i, intent, context)
         self._step_results.append(result)
 
         if result["success"]:
-            logger.info(f"  ✓ Step {i+1} done in {result['duration_ms']:.0f}ms")
+            logger.info(f"   Step {i+1} done in {result['duration_ms']:.0f}ms")
         else:
-            logger.warning(f"  ✗ Step {i+1} failed: {result.get('error', '?')}")
+            logger.warning(f"   Step {i+1} failed: {result.get('error', '?')}")
 
     return self._step_results
 
@@ -132,7 +110,7 @@ async def _execute_with_retry_patched(self, step: Dict, idx: int, intent: Dict, 
             }
 
         if attempt > 0:
-            logger.info(f"  🔄 Retry {attempt}/{max_retries}")
+            logger.info(f"   Retry {attempt}/{max_retries}")
             await asyncio.sleep(0.4)
 
         result = await _execute_step_safe(self, step, idx, intent, context)
@@ -187,7 +165,7 @@ async def _execute_step_safe(self, step: Dict, idx: int, intent: Dict, context: 
         if verify_cfg:
             verified = await self._verify(verify_cfg, output)
             if not verified:
-                logger.warning(f"  ⚠ Verification failed: {action}")
+                logger.warning(f"   Verification failed: {action}")
 
         duration_ms = (time.perf_counter() - start) * 1000
         return {
@@ -210,31 +188,3 @@ async def _execute_step_safe(self, step: Dict, idx: int, intent: Dict, context: 
             "error": friendly,         # Friendly message for response engine
             "raw_error": str(e)        # Full error for logging/reflection
         }
-
-
-# ── HOW TO APPLY THIS PATCH ────────────────────────────────────────────────
-"""
-In your executor/runner.py ExecutionRunner class, replace:
-
-    async def run_plan(self, plan, intent, context):
-        ...
-
-with:
-
-    run_plan = run_plan_patched
-    _execute_with_retry = _execute_with_retry_patched
-
-OR manually add:
-
-    from executor.runner_patch import run_plan_patched, _execute_with_retry_patched
-    ExecutionRunner.run_plan = run_plan_patched
-    ExecutionRunner._execute_with_retry = _execute_with_retry_patched
-
-at the bottom of executor/runner.py.
-
-The easiest approach: add these 3 lines at the very bottom of runner.py:
-
-    # Apply interrupt + error handling patches
-    ExecutionRunner.run_plan = run_plan_patched
-    ExecutionRunner._execute_with_retry = _execute_with_retry_patched
-"""
