@@ -290,7 +290,7 @@ class ToolSelector:
         adjusted = self._adjust_params(action, best_tool, entities, context)
 
         logger.debug(
-            f"🔧 Tool selected: {best_tool} for '{action}' "
+            f" Tool selected: {best_tool} for '{action}' "
             f"(score={best_score:.2f})"
         )
 
@@ -342,7 +342,7 @@ class ToolSelector:
         else:
             self._failed_tools[tool_name] = self._failed_tools.get(tool_name, 0) + 1
             logger.info(
-                f"⚠ Tool failure recorded: {tool_name} "
+                f" Tool failure recorded: {tool_name} "
                 f"(consecutive failures: {self._failed_tools[tool_name]})"
             )
 
@@ -359,18 +359,14 @@ class ToolSelector:
     ) -> float:
         """Score a tool candidate (0-1, higher = better)."""
 
-        # ── HARD ROUTING GATE: open_app ───────────────────────────────────
-        # This is intentionally evaluated BEFORE any generic scoring.
+        # ── DETERMINISTIC ROUTING GATE ─────────────────────────────────────
+        # High-stakes actions are routed by LOGIC, not probability scores.
+        # Scoring only applies to ambiguous cases where multiple tools
+        # are genuinely interchangeable (e.g. search_web, play_media).
         #
-        # Design contract:
-        #   app_launcher wins  → when the app exists locally (UWP, PATH,
-        #                        registry, start menu, or disk index).
-        #   browser wins       → ONLY when the app is genuinely not found
-        #                        anywhere on this machine.
-        #
-        # Without this gate, browser's higher reliability score (0.92 vs
-        # 0.85) causes it to outscore app_launcher for EVERY open_app call,
-        # routing Discord/Spotify/etc. to a web search instead of launching.
+        # Rule: if there is ONE correct tool for an action+context pair,
+        # return 1.0 for it and 0.0 for all others. No scoring needed.
+
         if action == "open_app":
             app_name = (
                 entities.get("name") or entities.get("app") or
@@ -379,17 +375,43 @@ class ToolSelector:
             app_found = bool(app_name) and is_app_installed(app_name)
 
             if tool_name == "app_launcher":
-                # Always attempt the launcher first. If the app is confirmed
-                # present, return the maximum score so no other tool can win.
-                # If not confirmed, still prefer launcher (it returns a
-                # structured failure that _adjust_params uses to build the
-                # correct web fallback URL).
-                return 1.0 if app_found else 0.55
+                # DETERMINISTIC: always launch locally-found apps.
+                # If not found, still route through launcher — it returns a
+                # structured fallback dict that _execute_step handles.
+                return 1.0  # launcher ALWAYS wins for open_app
 
             if tool_name == "browser":
-                # Browser is a pure web fallback for open_app.
-                # It must NEVER win when the app is locally available.
-                return 0.0 if app_found else 0.45
+                # Browser NEVER wins for open_app at selection time.
+                # The fallback path is handled in _execute_step, not here.
+                return 0.0
+
+        if action == "open_website":
+            # Browser always and only handles open_website. No scoring.
+            if tool_name == "browser":
+                return 1.0
+            return 0.0
+
+        if action in ("close_app", "focus_app", "minimize_app", "maximize_app"):
+            # App launcher always handles app window management.
+            if tool_name == "app_launcher":
+                return 1.0
+            return 0.0
+
+        if action in ("shutdown", "restart", "lock", "take_screenshot", "cancel_current",
+                      "minimize_app", "maximize_app", "set_volume"):
+            if tool_name == "system":
+                return 1.0
+            return 0.0
+
+        if action in ("store_memory", "recall_memory"):
+            if tool_name == "memory":
+                return 1.0
+            return 0.0
+
+        if action in ("send_message", "make_call", "navigate_to_contact"):
+            if tool_name == "communicator":
+                return 1.0
+            return 0.0
 
         # ── Generic scoring for all other actions ─────────────────────────
         score = 0.5  # Base score
@@ -459,7 +481,7 @@ class ToolSelector:
                 from urllib.parse import quote_plus
                 params["url"] = f"https://www.youtube.com/results?search_query={quote_plus(song)}"
                 params["action"] = "open_website"
-                logger.info(f"🔀 Redirected Spotify play to YouTube: {song}")
+                logger.info(f" Redirected Spotify play to YouTube: {song}")
             elif platform == "youtube":
                 from urllib.parse import quote_plus
                 params["url"] = f"https://www.youtube.com/results?search_query={quote_plus(song)}"
