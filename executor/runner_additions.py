@@ -1,113 +1,252 @@
 """
-RUNNER ADDITIONS — New Tool Classes
-=====================================
-Add these to executor/runner.py (or import from here).
+RUNNER ADDITIONS — Smart Open + Page Context Tools
+===================================================
+These tools require agent-level wiring (TTS callback, full config)
+that the basic ToolRegistry cannot provide at creation time.
 
-Adds:
-  1. SmartOpenTool   — "open Notion" → finds URL → opens it
-  2. PageContextTool — "what is this site" / "read aloud" → extracts + summarizes page
-  3. PATCH BrowserTool.close_tab → handles tab_name parameter
-
-HOW TO INTEGRATE:
-  Option A (simple): Copy these classes into runner.py and register them.
-  Option B (clean):  Import this file in runner.py:
-      from executor.runner_additions import SmartOpenTool, PageContextTool
-      and register in ExecutionRunner._register_tools().
-
-REGISTER IN ExecutionRunner._register_tools():
-    self.registry["smart_open"] = SmartOpenTool(config)
-    self.registry["page_context"] = PageContextTool(config)
+They are instantiated in agent/core.py._init_modules() and injected
+into the ToolRegistry so runner.py's _create_tool() is bypassed.
 """
 
 import asyncio
 import logging
+import re
+import time
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
-class SmartOpenTool:
-    """
-    Opens a website by name when the exact URL is unknown.
-    "open Notion" → searches DDG → finds notion.so → opens it
-    "open Jarvis on GitHub" → finds github.com/... → opens it
-    """
+class BaseTool:
+    async def execute(self, action: str, params: Dict,
+                      intent: Dict, context: Dict, step_results: List) -> Any:
+        raise NotImplementedError
+
+
+# ── SMART OPEN TOOL ────────────────────────────────────────────────────────
+
+class SmartOpenTool(BaseTool):
+    """Find and open a website/app by name with web fallback."""
 
     def __init__(self, config: Dict):
         self.config = config
 
-    async def execute(
-        self, action: str, params: Dict,
-        intent: Dict, context: Dict, step_results: List
-    ) -> Dict:
+    async def execute(self, action, params, intent, context, step_results):
         if action != "smart_open":
             raise ValueError(f"SmartOpenTool: unknown action {action}")
 
-        query = params.get("query", "") or intent.get("entities", {}).get("query", "")
+        query = params.get("query", "").strip()
         if not query:
-            raise ValueError("smart_open: no query provided")
+            return {"success": False, "error": "No query provided."}
 
-        from agent.page_context import smart_open
-        url, title = await smart_open(query)
+        # Try local app first
+        from utils.app_locator import app_locator
+        launched = await asyncio.to_thread(app_locator.launch, query)
+        if launched:
+            return {
+                "success": True,
+                "title": query,
+                "message": f"Opening {query}, Sir."
+            }
 
-        logger.info(f"🔗 Opened: {url} ({title})")
+        # Fallback to web search
+        import webbrowser
+        import urllib.parse
+        url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+        webbrowser.open(url)
         return {
+            "success": True,
+            "title": query,
             "opened": url,
-            "title": title,
-            "query": query,
+            "message": f"I couldn't find {query} locally, so I searched the web, Sir."
         }
 
 
-class PageContextTool:
+# ── PAGE CONTEXT TOOL ──────────────────────────────────────────────────────
+
+class PageContextTool(BaseTool):
     """
-    Screen/page aware tool.
-    Supports:
-      - read_page:     read current page aloud
-      - page_summary:  "what is this site about"
-      - extract_text:  raw extraction for other tools
+    Extract and speak/summarize the current browser page.
+
+    Two actions:
+      read_page    — grab page text, LLM-summarize, speak it
+      page_summary — same but return structured dict for memory storage
     """
 
     def __init__(self, config: Dict):
         self.config = config
         self._groq_key = config.get("groq_api_key", "")
-        self._speak_fn = None  # Set by core.py after init
+        self._speak_fn = None   # set by core.py after TTS is ready
 
     def set_speak_fn(self, fn):
         self._speak_fn = fn
 
-    async def execute(
-        self, action: str, params: Dict,
-        intent: Dict, context: Dict, step_results: List
-    ) -> Dict:
-        from agent.page_context import (
-            summarize_current_page, read_page_aloud, extract_page_text
+    def _speak(self, text: str):
+        """Safe speak: calls bound fn, falls back to logger."""
+        if self._speak_fn:
+            try:
+                self._speak_fn(text)
+            except Exception as e:
+                logger.error(f"[PageContextTool] speak failed: {e}")
+        else:
+            logger.warning(f"[PageContextTool] No speak_fn bound — text: {text[:80]}")
+
+    # ── CLIPBOARD EXTRACTION ───────────────────────────────────────────────
+
+    def _grab_clipboard(self) -> str:
+        """Ctrl+A → Ctrl+C → read clipboard. Returns raw text or empty string."""
+        try:
+            import pyautogui
+            import pyperclip
+
+            try:
+                old = pyperclip.paste()
+            except Exception:
+                old = ""
+
+            pyautogui.hotkey("ctrl", "a")
+            time.sleep(0.2)
+            pyautogui.hotkey("ctrl", "c")
+            time.sleep(0.35)
+
+            text = pyperclip.paste()
+
+            # Restore previous clipboard contents
+            try:
+                if old:
+                    pyperclip.copy(old)
+            except Exception:
+                pass
+
+            return text if (text and text != old) else ""
+        except Exception as e:
+            logger.warning(f"[PageContextTool] clipboard grab failed: {e}")
+            return ""
+
+    # ── TEXT CLEANING ──────────────────────────────────────────────────────
+
+    def _clean(self, raw: str, max_chars: int = 4000) -> str:
+        """
+        Line-by-line filter to remove nav/UI boilerplate before sending to LLM.
+        Removes: nav labels, button text, repeated items, lines < 4 chars.
+        """
+        _SKIP = re.compile(
+            r'^(cookie|privacy policy|terms|sign in|log in|subscribe|'
+            r'newsletter|advertisement|loading|skip to|navigation|'
+            r'menu|search|home|about|contact|copyright|©|'
+            r'accept|reject|allow|deny|close|dismiss|'
+            r'[\[\]<>|•·▶►])',
+            re.IGNORECASE
         )
 
-        if action == "page_summary":
-            spoken, full = await summarize_current_page(
-                groq_api_key=self._groq_key,
-                context=context
+        lines = raw.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        kept = []
+        seen: set = set()
+
+        for ln in lines:
+            ln = ln.strip()
+            if not ln or len(ln) < 4:
+                continue
+            if _SKIP.match(ln):
+                continue
+            key = ln.lower()[:60]
+            if key in seen:
+                continue
+            seen.add(key)
+            kept.append(ln)
+
+        return '\n'.join(kept)[:max_chars]
+
+    # ── LLM SUMMARIZER ─────────────────────────────────────────────────────
+
+    def _llm_summarize(self, cleaned_text: str, mode: str = "spoken") -> str:
+        """
+        Call Groq synchronously (called via run_in_executor in execute()).
+        mode: "spoken" → 3-5 conversational sentences
+              "full"   → structured brief with sections
+        """
+        if not self._groq_key:
+            logger.warning("[PageContextTool] No groq_api_key — returning truncated text")
+            return cleaned_text[:300]
+
+        try:
+            from groq import Groq
+            client = Groq(api_key=self._groq_key)
+
+            if mode == "spoken":
+                system = "You are Jarvis. Be concise and natural. No bullet points."
+                prompt = (
+                    "The user asked you to read aloud what is on their screen. "
+                    "Summarize the MAIN CONTENT in 3-5 natural spoken sentences. "
+                    "Skip all navigation menus, button labels, and repeated UI text — "
+                    "those have already been filtered. Focus only on the core article, "
+                    "product, event, or page subject matter.\n\n"
+                    f"PAGE CONTENT:\n{cleaned_text}"
+                )
+                max_tokens = 220
+            else:
+                system = "You are Jarvis, a precise analyst."
+                prompt = (
+                    "Summarize this webpage content in 2-3 concise sentences "
+                    "covering: what it is, what it's about, and who it's for.\n\n"
+                    f"PAGE CONTENT:\n{cleaned_text}"
+                )
+                max_tokens = 180
+
+            resp = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=max_tokens,
             )
+            return resp.choices[0].message.content.strip()
+
+        except Exception as e:
+            logger.error(f"[PageContextTool] LLM summarize failed: {e}")
+            return cleaned_text[:300]
+
+    # ── MAIN EXECUTE ───────────────────────────────────────────────────────
+
+    async def execute(self, action, params, intent, context, step_results):
+        loop = asyncio.get_event_loop()
+
+        # Step 1: grab page text
+        raw = await loop.run_in_executor(None, self._grab_clipboard)
+
+        if not raw or len(raw.strip()) < 50:
+            msg = "I couldn't read the page content. Please make sure a browser window is focused, Sir."
+            if action == "read_page":
+                self._speak(msg)
+            return {"success": False, "error": msg}
+
+        # Step 2: clean
+        cleaned = self._clean(raw)
+
+        if action == "read_page":
+            # Summarize then speak
+            spoken = await loop.run_in_executor(None, self._llm_summarize, cleaned, "spoken")
+            self._speak(spoken)
             return {
-                "spoken_summary": spoken,
-                "full_summary": full,
-                "action": "page_summary"
+                "success": True,
+                "spoken": spoken,
+                "raw_length": len(raw),
             }
 
-        elif action == "read_page":
-            speak_fn = self._speak_fn or (lambda t: logger.info(f"[READ] {t}"))
-            await read_page_aloud(
-                speak_fn=speak_fn,
-                groq_api_key=self._groq_key,
-                context=context
-            )
-            return {"read": True, "action": "read_page"}
+        elif action == "page_summary":
+            summary = await loop.run_in_executor(None, self._llm_summarize, cleaned, "full")
+            spoken = f"Here's a summary: {summary}"
+            self._speak(spoken)
+            return {
+                "success": True,
+                "full_summary": summary,
+                "spoken_summary": spoken,
+                "url": context.get("active_url", ""),
+            }
 
-        elif action == "extract_page_text":
-            text = await extract_page_text(max_chars=5000)
-            return {"text": text, "action": "extract_page_text"}
-
-        raise ValueError(f"PageContextTool: unknown action {action}")
+        raise ValueError(f"PageContextTool: unknown action '{action}'")
 
 
 # ── PATCHED BrowserTool CLOSE TAB ─────────────────────────────────────────
