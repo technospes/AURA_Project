@@ -118,7 +118,7 @@ class ContextTracker:
         self._sync_thread = threading.Thread(target=self._sync_loop, daemon=True)
         self._sync_thread.start()
 
-        logger.info("🔄 Context tracker running")
+        logger.info(" Context tracker running")
 
     def get(self, key: str, default: Any = None) -> Any:
         with self._lock:
