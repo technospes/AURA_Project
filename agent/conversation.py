@@ -164,7 +164,7 @@ class ConversationEngine:
                             value.get("hits", 0)
                         )
                 
-                logger.info(f"📦 Loaded {len(self._cache)} cached conversation responses")
+                logger.info(f" Loaded {len(self._cache)} cached conversation responses")
                 
                 # Clean expired entries
                 self._cleanup_cache()
@@ -284,16 +284,21 @@ class ConversationEngine:
         self,
         text: str,
         llm_client=None,
-        use_llm: bool = True
+        use_llm: bool = True,
+        context_messages: list = None,   # ← FIX: full history-aware message list
     ) -> Optional[str]:
         """
         Get a conversational response.
-        
+
         Priority:
         1. Template match (free, instant)
         2. Cache hit (free, instant)
-        3. LLM generation (costs API call, cached for future)
-        
+        3. LLM generation with FULL conversation history (context_messages)
+
+        context_messages: pre-built message list from session_memory.inject_into_messages().
+        When provided, the LLM call uses this instead of a plain single-turn prompt,
+        giving it access to conversation history, page content, and user profile.
+
         Returns None if this isn't a conversational query.
         """
         normalized = self._normalize(text)
@@ -301,29 +306,37 @@ class ConversationEngine:
         # ── 1. Try templates first (FREE) ─────────────────────────────────
         template_response = self._match_template(text)
         if template_response:
-            logger.info(f"💬 Template match for: '{text[:40]}'")
+            logger.info(f" Template match for: '{text[:40]}'")
             return template_response
         
         # ── 2. Try cache (FREE) ──────────────────────────────────────────
         cache_key = self._get_cache_key(text)
         if cache_key in self._cache:
+            # Only use cache when there's no page context (answers are content-specific)
             response, ts, hits = self._cache[cache_key]
-            self._cache[cache_key] = (response, ts, hits + 1)
-            logger.info(f"💬 Cache hit ({hits+1}x): '{text[:40]}'")
-            return response
+            # Skip cache if page context is present — question may reference page
+            from session_memory import session as _session
+            if not _session.has_page_context():
+                self._cache[cache_key] = (response, ts, hits + 1)
+                logger.info(f" Cache hit ({hits+1}x): '{text[:40]}'")
+                return response
         
         # ── 3. Check if this is conversational ───────────────────────────
         if not self._is_conversational(text):
             return None  # Not our job — let intent engine handle it
         
-        # ── 4. LLM fallback (COSTS API CALL) ─────────────────────────────
+        # ── 4. LLM fallback with full session context ─────────────────────
         if use_llm and llm_client:
-            response = await self._generate_llm_response(text, llm_client)
+            response = await self._generate_llm_response(
+                text, llm_client, context_messages=context_messages
+            )
             if response:
-                # Cache it
-                self._cache[cache_key] = (response, time.time(), 1)
-                self._save_cache()
-                logger.info(f"💬 LLM generated (cached): '{text[:40]}'")
+                # Only cache responses that don't depend on page context
+                from session_memory import session as _session
+                if not _session.has_page_context():
+                    self._cache[cache_key] = (response, time.time(), 1)
+                    self._save_cache()
+                logger.info(f" LLM generated: '{text[:40]}'")
                 return response
         
         return None
@@ -367,34 +380,38 @@ class ConversationEngine:
         
         return False
     
-    async def _generate_llm_response(self, text: str, llm_client) -> str:
-        """Generate response using LLM."""
+    async def _generate_llm_response(
+        self, text: str, llm_client, context_messages: list = None
+    ) -> str:
+        """Generate response using LLM with full conversation history."""
         try:
             loop = asyncio.get_event_loop()
-            
-            prompt = f"""You are Jarvis, a helpful, slightly witty AI assistant. 
-The user said: "{text}"
-
-Respond naturally and conversationally. Keep it under 50 words. 
-If asked about your preferences, note that you're an AI without true preferences, 
-but you're happy to provide information or recommendations.
-
-Response:"""
 
             def _call():
+                #  THE FIX: Inject complete session memory into the LLM
+                try:
+                    from session_memory import build_messages
+                except ImportError:
+                    from session_memory import build_messages
+                
+                if context_messages:
+                    messages = context_messages
+                else:
+                    # Wrap the user's prompt in the memory builder to guarantee memory injection
+                    messages = build_messages([
+                        {"role": "user", "content": text}
+                    ])
+
                 return llm_client.chat.completions.create(
                     model="llama-3.1-8b-instant",
-                    messages=[
-                        {"role": "system", "content": "You are Jarvis, a helpful AI assistant. Be concise and natural."},
-                        {"role": "user", "content": prompt}
-                    ],
+                    messages=messages,
                     temperature=0.7,
-                    max_tokens=100
+                    max_tokens=200,
                 )
-            
+
             response = await loop.run_in_executor(None, _call)
             return response.choices[0].message.content.strip()
-            
+
         except Exception as e:
             logger.error(f"LLM conversation response failed: {e}")
             return "I'm here to help, Sir. What would you like to do?"

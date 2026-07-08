@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
-
+from agent.intent_registry import INTENTS, get_intent, get_required_slots, CONTEXT_FREE_INTENTS
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +67,10 @@ ALWAYS_CLARIFY = {
     "set_reminder":  ("reminder_text", "time"),
     "open_notepad_write": ("text",),
 }
-
+# CONTEXT_FREE_INTENTS = {
+#             "close_tab", "new_tab", "read_page", "page_summary", 
+#             "answer_question", "guided_recommendation"
+#         }
 # ── NOISE PATTERNS ────────────────────────────────────────────────────────
 _NOISE_PATTERNS = [
     re.compile(r'^(um+|uh+|ah+|hmm+|mm+|oh+)$', re.I),
@@ -122,7 +125,7 @@ class DecisionEngine:
         entities     = intent.get("entities", {})
         original_text = intent.get("original_text", "")
 
-        logger.info(f"🤔 Deciding: intent={intent_name} conf={confidence:.2f}")
+        logger.info(f" Deciding: intent={intent_name} conf={confidence:.2f}")
 
         # ── 1. NOISE CHECK ─────────────────────────────────────────────────
         noise_result = self._check_noise(original_text)
@@ -162,6 +165,99 @@ class DecisionEngine:
                 direct_answer=None,  # Will be filled by ResponseEngine using AI
                 confidence=confidence
             )
+
+        # ── THE FIX: FAST PATH / HARD BYPASS FOR CONTEXT-FREE INTENTS ──────
+        
+        if intent_name in CONTEXT_FREE_INTENTS:
+            return DecisionResult(
+                decision=Decision.EXECUTE,
+                reason="Context-free action — executing directly.",
+                confidence=confidence
+            )
+
+        if intent_name in ("open_app", "close_app"):
+            app_name = entities.get("app") or entities.get("name")
+            
+            if not app_name:
+                return DecisionResult(
+                    decision=Decision.CLARIFY,
+                    reason="open_app/close_app with no app name resolved",
+                    clarification_question="Which application would you like me to open, Sir?",
+                    confidence=0.3
+                )
+            if intent_name == "close_app":
+                if self._looks_like_website(app_name):
+                    intent["intent"] = "close_tab"
+                    intent["entities"] = {}
+                    logger.info(f"[Decision] '{app_name}' is a website — closing tab instead")
+                    return DecisionResult(
+                        decision=Decision.EXECUTE,
+                        reason=f"Website detected — closing browser tab",
+                        confidence=0.9
+                    )
+                return DecisionResult(
+                    decision=Decision.EXECUTE,
+                    reason=f"Closing app: {app_name}",
+                    confidence=confidence
+                )
+
+            # OPEN APP: check local first, then try web
+            try:
+                from utils.app_locator import app_locator
+                
+                app_path = app_locator.find_app(app_name)
+                
+                if app_path:
+                    # Found locally — execute
+                    return DecisionResult(
+                        decision=Decision.EXECUTE,
+                        reason=f"App found locally: {app_path}",
+                        confidence=confidence
+                    )
+                
+                # [NEW: Phase 1 Architecture Fix] — Web fallback
+                # Not found locally. Try resolving as website.
+                website_url = self._resolve_as_website(app_name)
+                if website_url:
+                    # Re-route to open_url intent
+                    intent["intent"] = "open_url"
+                    intent["entities"] = {"url": website_url}
+                    logger.info(f"[Decision]  App not local — opening {website_url} in browser")
+                    return DecisionResult(
+                        decision=Decision.EXECUTE,
+                        reason=f"App not local — opening {website_url} in browser",
+                        confidence=0.85
+                    )
+                
+                # Neither local nor web — ask user
+                return DecisionResult(
+                    decision=Decision.CLARIFY,
+                    reason=f"'{app_name}' not found as app or website",
+                    clarification_question=(
+                        f"I couldn't find {app_name} on your system or as a website, Sir. "
+                        f"Would you like me to search for it online?"
+                    ),
+                    confidence=0.5
+                )
+                
+            except Exception as e:
+                logger.error(f"App validation failed: {e}")
+                # Fall through to web fallback even on error
+                website_url = self._resolve_as_website(app_name)
+                if website_url:
+                    intent["intent"] = "open_url"
+                    intent["entities"] = {"url": website_url}
+                    return DecisionResult(
+                        decision=Decision.EXECUTE,
+                        reason=f"App lookup failed — opening {website_url} in browser",
+                        confidence=0.7
+                    )
+                return DecisionResult(
+                    decision=Decision.CLARIFY,
+                    reason="App validation system unavailable",
+                    clarification_question="I couldn't verify the application. Could you repeat that, Sir?",
+                    confidence=0.5
+                )
 
         # ── 4. AMBIGUITY CHECK ─────────────────────────────────────────────
         ambiguity_result = self._check_ambiguity(original_text, intent_name, entities, context)
@@ -205,7 +301,45 @@ class DecisionEngine:
             reason=f"All checks passed — executing '{intent_name}'",
             confidence=confidence
         )
-
+    
+    def _looks_like_website(self, name: str) -> bool:
+        """Heuristic: does this name look like a website, not a desktop app?"""
+        name_lower = name.lower().strip()
+        # Contains a TLD
+        if any(name_lower.endswith(tld) for tld in ['.com', '.org', '.net', '.io', '.in']):
+            return True
+        # Known web services (heuristic: common web brands)
+        web_brands = {'youtube', 'gmail', 'netflix', 'twitter', 'facebook', 
+                      'instagram', 'reddit', 'github', 'amazon', 'twitch'}
+        if name_lower in web_brands:
+            return True
+        return False
+    
+    # [NEW: Phase 1 Architecture Fix] — Web resolution heuristic
+    def _resolve_as_website(self, name: str) -> Optional[str]:
+        """
+        Convert an app name to its canonical website URL without hardcoding.
+        Uses heuristics only — no hardcoded dict of websites.
+        """
+        name_lower = name.lower().strip()
+        
+        # Heuristic 1: Already looks like a domain
+        if '.' in name_lower and ' ' not in name_lower:
+            url = f"https://{name_lower}"
+            logger.info(f"[Decision] Resolved as domain: {url}")
+            return url
+        
+        # Heuristic 2: Single word, alphanumeric → try .com
+        if ' ' not in name_lower and name_lower.replace('-', '').replace('_', '').isalnum():
+            url = f"https://www.{name_lower}.com"
+            logger.info(f"[Decision] Resolved as website: {url}")
+            return url
+        
+        # Heuristic 3: Multi-word → use search engine
+        from urllib.parse import quote_plus
+        url = f"https://duckduckgo.com/?q={quote_plus(name)}"
+        logger.info(f"[Decision] Resolved as search: {url}")
+        return url
     # ── PRIVATE CHECKS ─────────────────────────────────────────────────────
 
     def _check_noise(self, text: str) -> Optional[DecisionResult]:
@@ -231,7 +365,11 @@ class DecisionEngine:
     ) -> Optional[DecisionResult]:
         """Detect genuinely ambiguous commands."""
         text_lower = text.lower().strip()
-
+        # ── THE FIX: Exempt tab/page/questions from needing context resolution ──
+        exempt_intents = {
+            "close_tab", "new_tab", "read_page", "page_summary", 
+            "answer_question", "guided_recommendation"
+        }
         for phrase in _AMBIGUOUS_PHRASES:
             if phrase in text_lower and not entities:
                 return DecisionResult(
@@ -266,13 +404,14 @@ class DecisionEngine:
         return None
 
     def _check_required_slots(
-        self, intent_name: str, entities: Dict, memory_context: Dict
+    self, intent_name: str, entities: Dict, memory_context: Dict
     ) -> Optional[DecisionResult]:
         """
         Check if required slots are missing.
         But FIRST check memory for defaults — e.g. preferred platform.
         """
-        required = ALWAYS_CLARIFY.get(intent_name, ())
+        # [NEW: Phase 1 Architecture Fix] — Use IntentRegistry instead of hardcoded dict
+        required = get_required_slots(intent_name)
         if not required:
             return None
 
@@ -290,13 +429,9 @@ class DecisionEngine:
                     prefs.get("preferred_platform")
                 )
                 if preferred:
-                    entities[slot] = preferred  # Fill it from memory
-                    logger.info(f"📝 Filled slot '{slot}' from memory: {preferred}")
+                    entities[slot] = preferred
+                    logger.info(f" Filled slot '{slot}' from memory: {preferred}")
                     continue
-
-            if slot == "song" and prefs.get("favorite_song"):
-                # Don't auto-fill songs — too presumptuous
-                pass
 
             missing.append(slot)
 
@@ -330,16 +465,15 @@ class DecisionEngine:
     ) -> Optional[DecisionResult]:
         """Detect conflicts between intent and current context."""
         # Example: user says "close spotify" but spotify isn't open
+        from agent.world_model import world
         if intent_name == "close_app":
             app = entities.get("app", "").lower()
-            active = context.get("active_app", "").lower()
+            active = world.active_app.lower() or context.get("active_app", "").lower()
             last = context.get("last_app", "")
-            # If we know what's running, warn if not found
-            # (but don't block — psutil verification will handle it)
 
-        # Example: user says "next track" but nothing is playing
         if intent_name in ("next_track", "previous_track", "pause_media"):
-            last_song = context.get("last_song")
+            last_song = world.last_song or context.get("last_song")
+            active_app = world.active_app or context.get("active_app", "")
             if not last_song and context.get("active_app") not in ("spotify", "vlc", "chrome"):
                 return DecisionResult(
                     decision=Decision.CLARIFY,
