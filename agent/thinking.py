@@ -1,41 +1,10 @@
-"""
-THINKING LAYER — Goal Decomposition + Multi-Step Reasoning
-===========================================================
-THIS is what was missing to make Jarvis a TRUE agent.
-
-The difference between a voice assistant and an agent:
-
-  Voice assistant:  "open spotify"  →  open spotify
-  Agent:            "find me something relaxing to listen to"
-                    → think: user wants music → what's their preference? 
-                    → recall: they mentioned liking lofi last week
-                    → plan: search lofi → open on spotify → play
-                    → execute all steps automatically
-                    → report back
-
-The ThinkingEngine does three things:
-
-  1. GOAL EXTRACTION: Turn a natural language request into a clear goal
-     with success criteria ("play Starboy" → goal="music playing",
-     success="Spotify is playing Starboy")
-
-  2. DECOMPOSITION: Break goals into subtasks when needed
-     ("find best phone under 30k" → search → compare → decide → open)
-
-  3. REASONING: Use memory + context to fill in gaps
-     ("play my favorite song" → recall preference → fill in song/platform)
-
-This runs BETWEEN intent understanding and planning.
-The planner then converts the ThinkResult into execution steps.
-"""
-
 import asyncio
 import json
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-
+from agent.goal_manager import goal_manager, GoalStep
 logger = logging.getLogger(__name__)
 
 
@@ -174,6 +143,10 @@ class ThinkingEngine:
 
         # Cache the result
         self._think_cache[cache_key] = result
+        
+        # [NEW: Phase 1 Architecture Fix] — Persist multi-step goals
+        self._maybe_create_goal(result, intent, entities)
+        
         return result
 
     def _simple_think(self, intent_name: str, entities: Dict, memory: Dict) -> ThinkResult:
@@ -259,7 +232,12 @@ class ThinkingEngine:
         return await self._llm_think(intent, memory, context)
 
     def _decompose_research(self, entities, memory, context) -> ThinkResult:
-        topic  = entities.get("topic", "the topic")
+        topic = (
+            entities.get("query") or
+            entities.get("topic") or
+            entities.get("subject") or
+            "the topic"
+        )
         fmt    = entities.get("output_format", "spoken")
         prefs  = {p["key"]: p["value"] for p in memory.get("preferences", [])}
         depth  = int(prefs.get("preferred_research_depth", 4))
@@ -385,6 +363,11 @@ AVAILABLE ACTIONS:
 - take_screenshot(): screenshot
 - answer_question(query): answer with AI
 - search_and_navigate(query): web research
+- unified_comm:
+    * send_whatsapp_message (REQUIRED: "contact", "message")
+    * call_whatsapp (REQUIRED: "contact")
+    * call_discord (REQUIRED: "contact")
+    * open_and_search (REQUIRED: "query")
 
 Respond ONLY with JSON:
 {{
@@ -450,3 +433,55 @@ Keep it simple. 1-3 subtasks max unless truly necessary."""
         """Simple cache key from intent + sorted entity values."""
         entity_str = "_".join(sorted(f"{k}={v}" for k, v in entities.items() if v))
         return f"{intent_name}:{entity_str}"
+    
+        # [NEW: Phase 1 Architecture Fix] — Goal persistence
+    def _maybe_create_goal(
+        self, 
+        result: ThinkResult, 
+        intent: Dict, 
+        entities: Dict
+    ) -> Optional[str]:
+        """
+        Persist a multi-step goal to the GoalManager so it survives across turns.
+        Only creates goals for multi-step, non-clarification ThinkResults.
+        
+        Returns goal_id if created, None otherwise.
+        """
+        try:
+            # Only persist multi-step goals that don't need clarification
+            if result.requires_clarification:
+                return None
+            if len(result.subtasks) <= 1:
+                return None
+            
+            # Convert Subtasks to GoalSteps
+            steps = []
+            for s in result.subtasks:
+                step = GoalStep(
+                    action=s.action,
+                    description=s.description,
+                    params=s.params
+                )
+                # Mark dependencies in params for later resolution
+                if s.depends_on:
+                    step.params["_depends_on"] = s.depends_on
+                steps.append(step)
+            
+            # Create the goal
+            goal_id = goal_manager.create(
+                name=result.goal,
+                steps=steps,
+                metadata={
+                    "intent": intent.get("intent", "unknown"),
+                    "entities": entities,
+                    "success_criteria": result.success_criteria,
+                    "created_from": "thinking_engine"
+                }
+            )
+            
+            logger.info(f"[ThinkingEngine]  Persisted goal '{result.goal}' as {goal_id} ({len(steps)} steps)")
+            return goal_id
+            
+        except Exception as e:
+            logger.warning(f"[ThinkingEngine] Failed to persist goal: {e}")
+            return None

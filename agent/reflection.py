@@ -97,7 +97,7 @@ class ReflectionEngine:
             )
 
         logger.info(
-            f"🔄 Reflecting (depth={ctx.reflection_depth}) | "
+            f" Reflecting (depth={ctx.reflection_depth}) | "
             f"failed={ctx.failed_steps} | succeeded={ctx.succeeded_steps}"
         )
 
