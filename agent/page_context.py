@@ -51,21 +51,21 @@ async def smart_open(query: str) -> Tuple[str, str]:
     # First: check if it's in our known registry
     url = _registry_lookup(query)
     if url:
-        logger.info(f"🔗 Registry match: {query} → {url}")
+        logger.info(f" Registry match: {query} → {url}")
         webbrowser.open(url)
         return url, query
 
     # Second: DuckDuckGo instant answer
     url, title = await _ddg_first_result(query)
     if url:
-        logger.info(f"🔗 DDG result: {query} → {url}")
+        logger.info(f" DDG result: {query} → {url}")
         webbrowser.open(url)
         return url, title
 
     # Fallback: Google search
     from urllib.parse import quote_plus
     search_url = f"https://www.google.com/search?q={quote_plus(query)}"
-    logger.info(f"🔗 Fallback Google: {search_url}")
+    logger.info(f" Fallback Google: {search_url}")
     webbrowser.open(search_url)
     return search_url, query
 
@@ -331,7 +331,7 @@ async def summarize_current_page(groq_api_key: str, context: dict = None) -> Tup
     Spoken summary: 3-4 sentences, TTS-friendly
     Full summary: detailed markdown, stored in memory
     """
-    logger.info("📄 Extracting page text...")
+    logger.info(" Extracting page text...")
     page_text = await extract_page_text(max_chars=5000)
 
     if "couldn't read" in page_text or len(page_text.strip()) < 50:
