@@ -129,7 +129,7 @@ class QueryPlanner:
             queries.insert(0, topic)
             queries = queries[:max_queries]
 
-        logger.info(f"📋 Research plan ({len(queries)} queries): {queries}")
+        logger.info(f" Research plan ({len(queries)} queries): {queries}")
         return queries
 
 
@@ -296,6 +296,20 @@ class DeepResearcher:
 
             confidence = self._estimate_confidence(top, consensus)
             progress(1.0, "Done")
+            try:
+                from jarvis_patch.core_patch import event_bus
+                event_bus.publish("RESEARCH_DONE", {
+                    "summary": synthesis[:300],
+                    "topic": topic,
+                    "confidence": confidence,
+                    "sources_count": len(top),
+                    "key_facts": key_facts[:3],
+                })
+                logger.info(f"[Research]  Published RESEARCH_DONE event for '{topic}'")
+            except ImportError:
+                logger.debug("[Research] EventBus not available — skipping publication")
+            except Exception as e:
+                logger.warning(f"[Research] EventBus publish failed (non-fatal): {e}")
 
             return ResearchResult(
                 topic=topic,
@@ -315,6 +329,19 @@ class DeepResearcher:
 
         except Exception as e:
             logger.error(f"Research failed: {e}", exc_info=True)
+            try:
+                from jarvis_patch.core_patch import event_bus
+                event_bus.publish("RESEARCH_DONE", {
+                    "summary": f"I ran into a problem researching {topic}, Sir. {str(e)[:100]}",
+                    "topic": topic,
+                    "confidence": 0.0,
+                    "sources_count": 0,
+                    "key_facts": [],
+                    "error": str(e)[:200],
+                })
+            except Exception:
+                pass
+            
             return ResearchResult(
                 topic=topic,
                 synthesis=f"I ran into a problem researching that, Sir. {str(e)[:80]}",
@@ -332,9 +359,7 @@ class DeepResearcher:
         def _one_search(query: str) -> List[SearchResult]:
             try:
                 from ddgs import DDGS
-                
-                # Use context manager to safely open and close the search connection
-                with DDGS() as ddgs:
+                with DDGS(timeout=12) as ddgs:
                     results = list(ddgs.text(query, max_results=3))
                 
                 return [
@@ -353,7 +378,14 @@ class DeepResearcher:
                 return []
 
         tasks = [loop.run_in_executor(None, _one_search, q) for q in queries]
-        results_lists = await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            results_lists = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Research search timed out after 30s")
+            results_lists = []
 
         # Flatten + deduplicate by URL
         seen_urls: set = set()
@@ -366,7 +398,7 @@ class DeepResearcher:
                     seen_urls.add(r.url)
                     all_results.append(r)
 
-        logger.info(f"📄 Collected {len(all_results)} unique sources")
+        logger.info(f" Collected {len(all_results)} unique sources")
         return all_results
 
     def _extract_content(
