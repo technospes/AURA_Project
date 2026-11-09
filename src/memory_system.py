@@ -91,7 +91,7 @@ class JarvisMemory:
         # Load existing memories
         self._load()
         
-        logger.info(f"✓ Memory system initialized: {len(self.memories)} entries loaded")
+        logger.info(f" Memory system initialized: {len(self.memories)} entries loaded")
     
     def _generate_id(self, content: str, category: str) -> str:
         """Generate unique ID for memory entry"""
@@ -183,7 +183,7 @@ class JarvisMemory:
             # Auto-save
             self._save()
             
-            logger.info(f"💾 Stored [{category}]: {content[:50]}...")
+            logger.info(f" Stored [{category}]: {content[:50]}...")
             
             return memory_id
     
@@ -241,7 +241,7 @@ class JarvisMemory:
             matches = [mem for _, mem in results[:limit]]
             
             if matches:
-                logger.info(f"🧠 Recalled {len(matches)} memories for: {query}")
+                logger.info(f" Recalled {len(matches)} memories for: {query}")
                 self._save()  # Save updated access stats
             
             return matches
@@ -305,7 +305,7 @@ class JarvisMemory:
                 del self.memories[memory_id]
                 self.metadata["total_entries"] = len(self.memories)
                 self._save()
-                logger.info(f"🗑️  Forgot memory: {memory_id}")
+                logger.info(f"️  Forgot memory: {memory_id}")
                 return True
             return False
     
@@ -349,7 +349,7 @@ class JarvisMemory:
                 del self.memories[mem_id]
             
             if to_delete:
-                logger.info(f"🧹 Cleaned up {len(to_delete)} old memories")
+                logger.info(f" Cleaned up {len(to_delete)} old memories")
                 self.metadata["last_cleanup"] = current_time
                 self.metadata["total_entries"] = len(self.memories)
                 self._save()
@@ -410,7 +410,7 @@ class JarvisMemory:
             # Load metadata
             self.metadata = data.get("metadata", self.metadata)
             
-            logger.info(f"✓ Loaded {len(self.memories)} memories from disk")
+            logger.info(f" Loaded {len(self.memories)} memories from disk")
             
         except Exception as e:
             logger.error(f"Failed to load memories: {e}")
@@ -435,7 +435,7 @@ class JarvisMemory:
             # Rename (atomic on most systems)
             temp_file.replace(self.memory_file)
             
-            logger.debug(f"💾 Saved {len(self.memories)} memories")
+            logger.debug(f" Saved {len(self.memories)} memories")
             
         except Exception as e:
             logger.error(f"Failed to save memories: {e}")
@@ -452,7 +452,7 @@ class JarvisMemory:
                 del self.memories[mem_id]
             
             if to_delete:
-                logger.info(f"🗑️  Cleared {len(to_delete)} {category} memories")
+                logger.info(f"️  Cleared {len(to_delete)} {category} memories")
                 self.metadata["total_entries"] = len(self.memories)
                 self._save()
     
@@ -478,7 +478,7 @@ class JarvisMemory:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False)
             
-            logger.info(f"📤 Exported {len(self.memories)} memories to {output_file}")
+            logger.info(f" Exported {len(self.memories)} memories to {output_file}")
             
             return export_data
 
