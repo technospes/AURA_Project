@@ -131,7 +131,7 @@ class WakeWordConfidenceScorer:
             self.stats["triggers"] += 1
             confidence = smoothed
             logger.info(
-                f"✅ Wake confirmed: '{variant}' | "
+                f" Wake confirmed: '{variant}' | "
                 f"conf={smoothed:.2f} | SNR={snr:.1f}x | threshold={threshold:.2f}"
             )
             return True, confidence, "confirmed"
