@@ -265,7 +265,7 @@ class RetryExecutor:
                     'success': True,
                     'method': 'primary',
                     'verification': verification,
-                    'message': f"✓ {app_name} opened successfully"
+                    'message': f" {app_name} opened successfully"
                 }
             
             attempts.append({'method': 'primary', 'result': 'failed_verification'})
@@ -294,7 +294,7 @@ class RetryExecutor:
                         'method': f'fallback_{i}',
                         'description': description,
                         'verification': verification,
-                        'message': f"✓ {app_name} opened via {description}"
+                        'message': f" {app_name} opened via {description}"
                     }
                 
                 attempts.append({'method': f'fallback_{i}', 'result': 'failed_verification'})
@@ -307,7 +307,7 @@ class RetryExecutor:
         return {
             'success': False,
             'attempts': attempts,
-            'message': f"✗ All methods failed to open {app_name}"
+            'message': f" All methods failed to open {app_name}"
         }
 
 
