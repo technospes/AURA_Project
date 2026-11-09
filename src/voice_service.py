@@ -2,10 +2,10 @@
 JARVIS VOICE SERVICE HYBRID v33.1 - FIXED ZERO-API PATTERNS
 =================================================================
 FIXES:
-1. ✅ Case-insensitive matching for ALL patterns
-2. ✅ Handles punctuation (periods, commas, etc.)
-3. ✅ Better extraction of targets
-4. ✅ More flexible matching
+1.  Case-insensitive matching for ALL patterns
+2.  Handles punctuation (periods, commas, etc.)
+3.  Better extraction of targets
+4.  More flexible matching
 """
 
 import os
@@ -72,8 +72,8 @@ class ZeroApiRouter:
         
         # PLAY commands - FIXED: Non-greedy capture with explicit platform
         'play_music': re.compile(r'^play\s+(?:music|song|track|audio)\s+(?:by\s+)?(.+)', re.IGNORECASE),
-        'play_on_youtube': re.compile(r'^play\s+(.+?)\s+on\s+youtube', re.IGNORECASE),  # ✅ FIXED: (.+?) non-greedy
-        'play_on_spotify': re.compile(r'^play\s+(.+?)\s+on\s+spotify', re.IGNORECASE),  # ✅ Already correct
+        'play_on_youtube': re.compile(r'^play\s+(.+?)\s+on\s+youtube', re.IGNORECASE),  #  FIXED: (.+?) non-greedy
+        'play_on_spotify': re.compile(r'^play\s+(.+?)\s+on\s+spotify', re.IGNORECASE),  #  Already correct
         'play_video': re.compile(r'^play\s+(.+)', re.IGNORECASE),
         
         # SEARCH commands - IMPROVED
@@ -137,12 +137,12 @@ class ZeroApiRouter:
                                 params['target'] = group.strip()
                                 break
                 
-                logger.info(f"✅ ZERO-API pattern matched: {pattern_name} -> {params.get('target', 'N/A')}")
+                logger.info(f" ZERO-API pattern matched: {pattern_name} -> {params.get('target', 'N/A')}")
                 return 'zero_api', {'action': pattern_name, **params}
         
         # 2. Check if it's a question (ends with ? or starts with question words)
         if cleaned_command.endswith('?') or any(cleaned_command.lower().startswith(q) for q in ['what', 'how', 'why', 'when', 'where', 'who', 'which', 'can you', 'could you']):
-            logger.info("❓ Question detected -> AI route")
+            logger.info(" Question detected -> AI route")
             return 'ai', {'query': command}
         
         # 3. Very short commands (1-2 words) that aren't questions
@@ -169,7 +169,7 @@ class ZeroApiRouter:
                     action_type = 'unknown'
                 
                 if action_type != 'unknown':
-                    logger.info(f"🔄 Short command -> ZERO-API: {action} {target}")
+                    logger.info(f" Short command -> ZERO-API: {action} {target}")
                     return 'zero_api', {
                         'action': action_type,
                         'target': target,
@@ -178,7 +178,7 @@ class ZeroApiRouter:
                     }
         
         # 4. Default to AI for safety
-        logger.info("🤖 Defaulting to AI route")
+        logger.info(" Defaulting to AI route")
         return 'ai', {'query': command}
     
     @staticmethod
@@ -236,7 +236,7 @@ class HybridVoiceAssistant:
         if AIAssistant:
             try:
                 self.ai_brain = AIAssistant()
-                logger.info("✅ AI brain ready (for complex queries only)")
+                logger.info(" AI brain ready (for complex queries only)")
             except Exception as e:
                 logger.warning(f"AI brain init failed: {e}")
         
@@ -279,19 +279,19 @@ class HybridVoiceAssistant:
             'api_calls_saved': 0
         }
         
-        logger.info("✅ HYBRID Voice Assistant v33.1 initialized (FIXED PATTERNS)")
+        logger.info(" HYBRID Voice Assistant v33.1 initialized (FIXED PATTERNS)")
         self._print_startup_banner()
     
     def _print_startup_banner(self):
         """Print startup banner"""
         print("\n" + "="*70)
-        print("🚀 JARVIS HYBRID v33.1 - FIXED ZERO-API PATTERNS")
+        print(" JARVIS HYBRID v33.1 - FIXED ZERO-API PATTERNS")
         print("="*70)
-        print("\n⚡ PERFORMANCE TARGETS:")
+        print("\n PERFORMANCE TARGETS:")
         print("   • Simple commands: <500ms, 0 API calls")
         print("   • Complex queries: <2s, 1 API call")
         
-        print("\n🎯 ZERO-API COMMANDS (NOW WORKING!):")
+        print("\n ZERO-API COMMANDS (NOW WORKING!):")
         print("   • 'Open Spotify.' (with period)")
         print("   • 'close spotify' (lowercase)")
         print("   • 'Play music'")
@@ -299,7 +299,7 @@ class HybridVoiceAssistant:
         print("   • 'What's the time?'")
         print("   • 'Thanks' or 'Thank you'")
         
-        print("\n📝 USAGE:")
+        print("\n USAGE:")
         print("   1. Say 'Jarvis'")
         print("   2. Speak command (1-5s)")
         print("   3. Auto-processes when you stop talking")
@@ -309,7 +309,7 @@ class HybridVoiceAssistant:
     def _init_lightweight_vosk(self):
         """Initialize Vosk for wake word"""
         if not VOSK_AVAILABLE:
-            logger.error("❌ Vosk not available")
+            logger.error(" Vosk not available")
             return
         
         paths = [
@@ -322,7 +322,7 @@ class HybridVoiceAssistant:
         model_path = next((p for p in paths if p and Path(p).exists()), None)
         
         if not model_path:
-            logger.error("❌ Vosk model not found")
+            logger.error(" Vosk model not found")
             return
         
         try:
@@ -334,32 +334,32 @@ class HybridVoiceAssistant:
             self.wake_recognizer.SetWords(False)
             self.wake_recognizer.SetPartialWords(False)
             
-            logger.info(f"✅ Wake word detection ready: {model_path}")
+            logger.info(f" Wake word detection ready: {model_path}")
         except Exception as e:
-            logger.error(f"❌ Vosk init failed: {e}")
+            logger.error(f" Vosk init failed: {e}")
     
     def _init_groq_client(self):
         """Initialize Groq for transcription ONLY"""
         try:
             api_key = os.getenv("GROQ_API_KEY")
             if not api_key:
-                logger.error("❌ GROQ_API_KEY not set")
+                logger.error(" GROQ_API_KEY not set")
                 return
             
             self.groq_client = Groq(api_key=api_key)
-            logger.info("✅ Groq Whisper ready (for transcription only)")
+            logger.info(" Groq Whisper ready (for transcription only)")
             
         except Exception as e:
-            logger.error(f"❌ Groq init failed: {e}")
+            logger.error(f" Groq init failed: {e}")
     
     def start(self):
         """Start voice assistant"""
         if not self.wake_recognizer:
-            print("❌ Wake word detection unavailable")
+            print(" Wake word detection unavailable")
             return
         
         if not self.groq_client:
-            print("❌ GROQ_API_KEY not set")
+            print(" GROQ_API_KEY not set")
             return
         
         self.running = True
@@ -373,12 +373,12 @@ class HybridVoiceAssistant:
                 callback=self._audio_callback
             )
             self.stream.start()
-            logger.info("✅ Audio stream started")
+            logger.info(" Audio stream started")
         except Exception as e:
-            logger.error(f"❌ Audio stream failed: {e}")
+            logger.error(f" Audio stream failed: {e}")
             return
         
-        logger.info("🎤 Listening for wake word...")
+        logger.info(" Listening for wake word...")
         
         try:
             while self.running and self.shared_state.system_active.value:
@@ -449,16 +449,17 @@ class HybridVoiceAssistant:
         if self.wake_recognizer.AcceptWaveform(audio_bytes):
             result = json.loads(self.wake_recognizer.Result())
             text = result.get('text', '').lower()
+            print(f"[DEBUG] Transcribed: {text}")
             
             if any(wake in text for wake in self.wake_config.wake_words):
                 wake_latency = time.time() - getattr(self, '_last_audio_time', time.time())
-                logger.info(f"✅ WAKE WORD DETECTED! (latency: {wake_latency*1000:.0f}ms)")
+                logger.info(f" WAKE WORD DETECTED! (latency: {wake_latency*1000:.0f}ms)")
                 
                 self.stats['wake_words'] += 1
                 
                 route = self._extract_immediate_command(text)
                 if route:
-                    logger.info(f"⚡ Immediate command detected: {text}")
+                    logger.info(f" Immediate command detected: {text}")
                     self._handle_command_directly(route[0], route[1])
                 else:
                     self._start_command_recording()
@@ -480,7 +481,7 @@ class HybridVoiceAssistant:
         self.command_start_time = time.time()
         self.silence_frames = 0
         
-        logger.info("🎙️  Recording command...")
+        logger.info("️  Recording command...")
         
         if self.jarvis_voice:
             threading.Thread(target=self.jarvis_voice.speak, args=("Yes",), daemon=True).start()
@@ -520,7 +521,7 @@ class HybridVoiceAssistant:
         command_audio = np.concatenate(self.command_buffer)
         recording_time = time.time() - self.command_start_time
         
-        logger.info(f"📝 Transcribing {recording_time:.1f}s...")
+        logger.info(f" Transcribing {recording_time:.1f}s...")
         
         threading.Thread(
             target=self._transcribe_and_execute,
@@ -553,7 +554,7 @@ class HybridVoiceAssistant:
                 self.processing_command = False
                 return
             
-            # ✅ FIX: Strip wake acknowledgments from START of command
+            #  FIX: Strip wake acknowledgments from START of command
             wake_acks = ['yes', 'yeah', 'yep', 'yup', 'okay', 'ok', 'sure', 'right', 'uh huh', 'mm hmm', 'mhm', 'alright']
             for ack in wake_acks:
                 cmd_lower = command.lower()
@@ -561,17 +562,17 @@ class HybridVoiceAssistant:
                 if cmd_lower.startswith(ack + ' ') or cmd_lower.startswith(ack + ',') or cmd_lower.startswith(ack + '.'):
                     original = command
                     command = command[len(ack):].lstrip(' ,.:;!')  # Strip ack + punctuation
-                    logger.info(f"🔧 Stripped wake ack: '{ack}' from '{original}' → '{command}'")
+                    logger.info(f" Stripped wake ack: '{ack}' from '{original}' → '{command}'")
                     self.stats['api_calls_saved'] += 1  # We saved an LLM call!
                     break
             
             # Filter if command is now empty (was pure acknowledgment)
             if not command or len(command) < 3:
-                logger.info(f"⚠️  Pure acknowledgment filtered (0 additional API calls)")
+                logger.info(f"️  Pure acknowledgment filtered (0 additional API calls)")
                 self.processing_command = False
                 return
             
-            logger.info(f"💬 Command: '{command}' (transcribed in {transcribe_time*1000:.0f}ms)")
+            logger.info(f" Command: '{command}' (transcribed in {transcribe_time*1000:.0f}ms)")
             
             self._route_and_execute_command(command, transcribe_time)
         
@@ -597,13 +598,13 @@ class HybridVoiceAssistant:
         exec_start = time.time()
         
         logger.info(f"\n{'='*60}")
-        logger.info(f"🎯 EXECUTING: {command}")
+        logger.info(f" EXECUTING: {command}")
         logger.info(f"{'='*60}")
         
         try:
             route_type, params = self.router.classify_command(command)
             
-            logger.info(f"📍 Route: {route_type.upper()}")
+            logger.info(f" Route: {route_type.upper()}")
             
             if route_type == 'zero_api':
                 self._handle_zero_api_command(params, exec_start)
@@ -632,7 +633,7 @@ class HybridVoiceAssistant:
         cleaned_command = params.get('cleaned_command', '')
         target = params.get('target', '')
         
-        logger.info(f"⚡ ZERO-API: {action} -> target: '{target}'")
+        logger.info(f" ZERO-API: {action} -> target: '{target}'")
         
         response = "Done, Sir"
         
@@ -705,13 +706,13 @@ class HybridVoiceAssistant:
             self.jarvis_voice.speak(response)
         
         exec_time = time.time() - exec_start
-        logger.info(f"✅ ZERO-API completed in {exec_time:.2f}s (0 API calls)")
+        logger.info(f" ZERO-API completed in {exec_time:.2f}s (0 API calls)")
     
     def _handle_ai_command(self, params: Dict, exec_start: float):
         """Handle command with AI (1 API call)"""
         query = params.get('query', '')
         
-        logger.info(f"🤖 AI ROUTE: {query[:50]}...")
+        logger.info(f" AI ROUTE: {query[:50]}...")
         
         if not self.ai_brain:
             response = "AI brain not available, Sir"
@@ -723,11 +724,11 @@ class HybridVoiceAssistant:
             self.jarvis_voice.speak(response)
         
         exec_time = time.time() - exec_start
-        logger.info(f"✅ AI completed in {exec_time:.2f}s (1 API call)")
+        logger.info(f" AI completed in {exec_time:.2f}s (1 API call)")
     
     def _handle_command_directly(self, route_type: str, params: Dict):
         """Handle command detected immediately with wake word"""
-        logger.info(f"⚡ DIRECT EXECUTION: {route_type}")
+        logger.info(f" DIRECT EXECUTION: {route_type}")
         
         if route_type == 'zero_api':
             self._handle_zero_api_command(params, time.time())
@@ -754,7 +755,7 @@ class HybridVoiceAssistant:
     def _print_statistics(self):
         """Print performance statistics"""
         print("\n" + "="*70)
-        print("📊 HYBRID ASSISTANT - PERFORMANCE STATISTICS")
+        print(" HYBRID ASSISTANT - PERFORMANCE STATISTICS")
         print("="*70)
         
         total_commands = self.stats['commands_total']
@@ -766,20 +767,20 @@ class HybridVoiceAssistant:
             zero_api_percent = (zero_api_commands / total_commands) * 100
             ai_percent = (ai_commands / total_commands) * 100
             
-            print(f"\n📈 COMMAND DISTRIBUTION:")
+            print(f"\n COMMAND DISTRIBUTION:")
             print(f"   • Total commands: {total_commands}")
             print(f"   • Zero-API commands: {zero_api_commands} ({zero_api_percent:.1f}%)")
             print(f"   • AI commands: {ai_commands} ({ai_percent:.1f}%)")
             print(f"   • API calls saved: {api_calls_saved}")
             
-            print(f"\n💰 COST SAVINGS:")
+            print(f"\n COST SAVINGS:")
             print(f"   • Estimated API cost saved: ${api_calls_saved * 0.0001:.4f}")
             
             if zero_api_percent < 50:
-                print(f"\n⚠️  WARNING: Only {zero_api_percent:.1f}% of commands used zero-API!")
+                print(f"\n️  WARNING: Only {zero_api_percent:.1f}% of commands used zero-API!")
                 print(f"   Check your patterns - they might be too strict!")
             else:
-                print(f"\n✅ SUCCESS: {zero_api_percent:.1f}% of commands used 0 API calls!")
+                print(f"\n SUCCESS: {zero_api_percent:.1f}% of commands used 0 API calls!")
         
         print("="*70)
 
@@ -801,10 +802,10 @@ if __name__ == "__main__":
             from multiprocessing import Value
             self.system_active = Value('b', True)
     
-    print("🚀 Starting Jarvis HYBRID v33.1 (FIXED)...\n")
+    print(" Starting Jarvis HYBRID v33.1 (FIXED)...\n")
     shared_state = MockState()
     
     try:
         voice_process_loop(shared_state)
     except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
+        print("\n Goodbye!")
