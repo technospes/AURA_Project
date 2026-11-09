@@ -55,7 +55,6 @@ class AppLocator:
             "spotify":        "spotify:",
             "discord":        "discord:",
             "calculator":     "calculator:",
-            "notepad":        "notepad:",
             "settings":       "ms-settings:",
             "ms settings":    "ms-settings:",
             "windows store":  "ms-windows-store:",
@@ -147,6 +146,12 @@ class AppLocator:
             self._store(app_name, result)
             logger.info(f"[LOCATOR] DISK INDEX: {result}")
             return result
+
+        web_url = self._resolve_as_web_service(app_name)
+        if web_url:
+            self._store(app_name, web_url)
+            logger.info(f"[LOCATOR] WEB: {web_url}")
+            return web_url
 
         logger.info(f"[LOCATOR] Not found: {app_name}")
         return None
@@ -333,6 +338,32 @@ class AppLocator:
                     best_score = len(cand)
                     best = path
         return best
+    
+    def _resolve_as_web_service(self, app_name: str) -> str | None:
+        """
+        [NEW: Phase 1 Architecture Fix]
+        Convert app name to website URL using heuristics.
+        No hardcoded lists — purely pattern-based.
+        """
+        name = app_name.lower().strip()
+        
+        # Heuristic 1: Already a domain (contains dot, no spaces)
+        if '.' in name and ' ' not in name:
+            url = f"https://{name}" if name.startswith('www.') else f"https://www.{name}"
+            logger.info(f"[LOCATOR] WEB (domain): {url}")
+            return url
+        
+        # Heuristic 2: Single word, no special chars → likely a .com website
+        if ' ' not in name and name.isalnum() and len(name) >= 3:
+            url = f"https://www.{name}.com"
+            logger.info(f"[LOCATOR] WEB (heuristic): {url}")
+            return url
+        
+        # Heuristic 3: Multi-word → search engine fallback
+        from urllib.parse import quote_plus
+        url = f"https://duckduckgo.com/?q={quote_plus(name)}"
+        logger.info(f"[LOCATOR] WEB (search): {url}")
+        return url
 
     # ── HELPERS ───────────────────────────────────────────────────────────
 
