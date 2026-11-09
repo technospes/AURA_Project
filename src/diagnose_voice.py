@@ -120,18 +120,18 @@ def test_audio_device():
         print(f"  Status: ", end="")
         
         if rms < 100:
-            print("❌ TOO QUIET - Increase microphone volume or gain")
+            print(" TOO QUIET - Increase microphone volume or gain")
         elif rms < 500:
-            print("⚠️  QUIET - May need AGC boost")
+            print("️  QUIET - May need AGC boost")
         elif rms < 2000:
-            print("✅ GOOD - Normal speech level")
+            print(" GOOD - Normal speech level")
         elif rms < 8000:
-            print("✅ LOUD - Optimal for recognition")
+            print(" LOUD - Optimal for recognition")
         else:
-            print("⚠️  VERY LOUD - May cause distortion")
+            print("️  VERY LOUD - May cause distortion")
         
     except Exception as e:
-        print(f"\n❌ Audio device error: {e}")
+        print(f"\n Audio device error: {e}")
     
     print("="*60)
 
@@ -150,7 +150,7 @@ def test_model_loading():
         print(f"Exists: {os.path.exists(model_path)}")
         
         if not os.path.exists(model_path):
-            print("❌ MODEL NOT FOUND!")
+            print(" MODEL NOT FOUND!")
             print(f"Please ensure the GigaSpeech model is at: {model_path}")
             return False
         
@@ -159,11 +159,11 @@ def test_model_loading():
         model = Model(model_path)
         load_time = time.time() - start_time
         
-        print(f"✅ Model loaded successfully in {load_time:.1f}s")
+        print(f" Model loaded successfully in {load_time:.1f}s")
         return True
     
     except Exception as e:
-        print(f"\n❌ Model loading error: {e}")
+        print(f"\n Model loading error: {e}")
         return False
     
     finally:
