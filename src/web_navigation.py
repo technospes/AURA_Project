@@ -74,11 +74,11 @@ class AutonomousWebNavigator:
             if not url.startswith(('http://', 'https://')):
                 url = f'https://{url}'
             
-            logger.info(f"🌐 Navigating to: {url}")
+            logger.info(f" Navigating to: {url}")
             
             # Check cache
             if url in self.page_cache:
-                logger.info(f"📦 Using cached version")
+                logger.info(f" Using cached version")
                 page = self.page_cache[url]
                 return {
                     'success': True,
@@ -128,7 +128,7 @@ class AutonomousWebNavigator:
             self.page_cache[url] = page
             self.visited_urls.append(url)
             
-            logger.info(f"✓ Page loaded: {title}")
+            logger.info(f" Page loaded: {title}")
             logger.info(f"  Content: {len(content)} chars")
             logger.info(f"  Links: {len(links)}")
             
@@ -207,7 +207,7 @@ class AutonomousWebNavigator:
             Dict with aggregated results
         """
         try:
-            logger.info(f"🔍 Searching for: {query}")
+            logger.info(f" Searching for: {query}")
             
             # Use DuckDuckGo for search (privacy-friendly)
             from ddgs import DDGS
@@ -232,7 +232,7 @@ class AutonomousWebNavigator:
                 title = result['title']
                 snippet = result['body']
                 
-                logger.info(f"\n📄 Result {i}: {title}")
+                logger.info(f"\n Result {i}: {title}")
                 logger.info(f"   URL: {url}")
                 
                 # Navigate and extract content
