@@ -17,7 +17,7 @@ import pyautogui
 import win32gui
 import win32con
 import win32process
-from pathlib import Path
+from pathlib  import Path
 from typing import Dict, Tuple, Optional, List
 from urllib.parse import quote_plus
 
@@ -150,7 +150,7 @@ class BrowserTabManager:
                 except:
                     pass  # Don't fail if we can't restore focus
             
-            print(f"[Tab] ✓ Successfully closed tab containing '{tab_name}'")
+            print(f"[Tab]  Successfully closed tab containing '{tab_name}'")
             return True
             
         except Exception as e:
@@ -207,7 +207,7 @@ class BrowserTabManager:
                 pyautogui.hotkey('ctrl', 'w')
                 time.sleep(0.2)
             
-            print(f"[Tab] ✓ Successfully closed tab containing '{tab_name}'")
+            print(f"[Tab]  Successfully closed tab containing '{tab_name}'")
             return True
             
         except Exception as e:
@@ -305,7 +305,7 @@ class SpotifyUriPlayer:
             # Wait for playback to start
             time.sleep(2)
             
-            print(f"[Spotify URI] ✓ URI sent for: {track_name}")
+            print(f"[Spotify URI]  URI sent for: {track_name}")
             print(f"[Spotify URI] Note: Spotify desktop app should play the track")
             return True
             
@@ -344,13 +344,13 @@ class SpotifyDesktopController:
             start_time = time.time()
             while time.time() - start_time < max_wait:
                 if SpotifyDesktopController.is_running():
-                    print("[Spotify] ✓ Process started")
+                    print("[Spotify]  Process started")
                     # Extra wait for window to initialize
                     time.sleep(3)
                     return True
                 time.sleep(0.5)
             
-            print("[Spotify] ✗ Launch timeout")
+            print("[Spotify]  Launch timeout")
             return False
         except Exception as e:
             print(f"[Spotify] Launch error: {e}")
@@ -362,7 +362,7 @@ class SpotifyDesktopController:
         if not SpotifyDesktopController.is_running():
             return SpotifyDesktopController.launch_spotify()
         else:
-            print("[Spotify] ✓ Already running")
+            print("[Spotify]  Already running")
             return True
     
     @staticmethod
@@ -416,7 +416,7 @@ class SpotifyDesktopController:
             windows = SpotifyDesktopController.get_spotify_windows()
             
             if not windows:
-                print("[Spotify] ✗ No Spotify windows found")
+                print("[Spotify]  No Spotify windows found")
                 return False
             
             # Filter for main window (usually has longest title or contains specific keywords)
@@ -488,11 +488,11 @@ class SpotifyDesktopController:
             # Verify window is focused
             current_hwnd = win32gui.GetForegroundWindow()
             if current_hwnd == hwnd:
-                print("[Spotify] ✓ Window successfully focused")
+                print("[Spotify]  Window successfully focused")
                 return True
             else:
                 # Even if verification fails, continue - window might still be accessible
-                print("[Spotify] ⚠ Focus verification unclear, continuing anyway...")
+                print("[Spotify]  Focus verification unclear, continuing anyway...")
                 return True
             
         except Exception as e:
@@ -517,7 +517,7 @@ class SpotifyDesktopController:
             
             # STEP 1: Ensure Spotify is running
             if not SpotifyDesktopController.ensure_spotify_running():
-                print("[Spotify] ✗ Failed to start Spotify")
+                print("[Spotify]  Failed to start Spotify")
                 return False
             
             # STEP 2: Wait for Spotify to fully initialize
@@ -540,7 +540,7 @@ class SpotifyDesktopController:
                     time.sleep(1)
             
             if not focused:
-                print("[Spotify] ✗ Could not focus Spotify window after all attempts")
+                print("[Spotify]  Could not focus Spotify window after all attempts")
                 return False
             
             # STEP 4: Wait for window to be fully responsive
@@ -608,7 +608,7 @@ class SpotifyDesktopController:
             time.sleep(0.5)
             
             print(f"\n{'='*60}")
-            print(f"[Spotify] ✓ Automation completed successfully!")
+            print(f"[Spotify]  Automation completed successfully!")
             print(f"[Spotify] Track: '{track_name}'")
             print(f"[Spotify] Check Spotify app for playback confirmation")
             print(f"{'='*60}\n")
@@ -617,7 +617,7 @@ class SpotifyDesktopController:
             
         except Exception as e:
             print(f"\n{'='*60}")
-            print(f"[Spotify] ✗ AUTOMATION FAILED")
+            print(f"[Spotify]  AUTOMATION FAILED")
             print(f"[Spotify] Error: {e}")
             print(f"{'='*60}\n")
             import traceback
@@ -771,7 +771,7 @@ class YouTubePlayer:
                 self.last_played_url = search_url
                 self._add_to_history(video_name, search_url)
                 
-                print(f"[YouTube] ✓ Playing: {video_name}")
+                print(f"[YouTube]  Playing: {video_name}")
                 return True
             
             # Construct autoplay URL
@@ -791,7 +791,7 @@ class YouTubePlayer:
             self.last_played_url = play_url
             self._add_to_history(video_name, play_url)
             
-            print(f"[YouTube] ✓ Autoplaying: {video_name}")
+            print(f"[YouTube]  Autoplaying: {video_name}")
             
             # Additional enhancement: Auto-fullscreen (optional)
             time.sleep(3)  # Wait for page to load
@@ -1202,10 +1202,10 @@ class CommandExecutor:
             # FIX: Check if 'message' key exists
             if result["status"] == "success":
                 message = result.get("message", "Command executed successfully")
-                print(f"[✓] {message}")
+                print(f"[] {message}")
             else:
                 message = result.get("message", "Command failed")
-                print(f"[✗] {message}")
+                print(f"[] {message}")
             
             self.commands_processed += 1
             
@@ -1213,7 +1213,7 @@ class CommandExecutor:
             logger.error(f"Execute command error: {e}")
             import traceback
             traceback.print_exc()
-            print(f"[✗] Command execution failed")
+            print(f"[] Command execution failed")
 
     def _get_cached_result(self, intent_data: dict) -> Optional[dict]:
         """Get cached result only for safe commands"""
@@ -1283,9 +1283,9 @@ class CommandExecutor:
         
         # Different cache indicators based on action type
         if action in ["open", "close", "play"]:
-            print(f"[⚡] {message} (from cache)")
+            print(f"[] {message} (from cache)")
         else:
-            print(f"[✓] {message} (cached)")
+            print(f"[] {message} (cached)")
         
         self.commands_processed += 1
 
@@ -1378,21 +1378,21 @@ class CommandExecutor:
         # Handle common time-sensitive queries locally if possible
         if "time" in query_lower or "what time" in query_lower:
             current_time = time.strftime("%I:%M %p")
-            print(f"[🕒] It's {current_time}")
+            print(f"[] It's {current_time}")
             return
         
         if "date" in query_lower or "what date" in query_lower:
             current_date = time.strftime("%B %d, %Y")
-            print(f"[📅] Today is {current_date}")
+            print(f"[] Today is {current_date}")
             return
         
         if "day" in query_lower or "what day" in query_lower:
             current_day = time.strftime("%A")
-            print(f"[📆] It's {current_day}")
+            print(f"[] It's {current_day}")
             return
         
         # For other time-sensitive queries, indicate fresh response
-        print(f"[🔍] Getting latest information for: {query}")
+        print(f"[] Getting latest information for: {query}")
         # This would typically call an API for fresh data
         
     def _handle_conversation_result(self, result: dict):
@@ -1402,9 +1402,9 @@ class CommandExecutor:
             # Try local answers first
             local_response = self._try_local_answer(query)
             if local_response:
-                print(f"[🤖] {local_response}")
+                print(f"[] {local_response}")
             else:
-                print(f"[💬] I'll help you with: {query}")
+                print(f"[] I'll help you with: {query}")
     
     def _handle_tab(self, action: str, payload: Dict, source: str) -> Dict:
         """Handle tab management"""
@@ -1474,13 +1474,13 @@ class CommandExecutor:
         if success:
             return {
                 "status": "success",
-                "message": f"✓ Playing '{media_name}' on Spotify Desktop"
+                "message": f" Playing '{media_name}' on Spotify Desktop"
             }
         else:
             # Complete failure - inform user
             return {
                 "status": "error",
-                "message": f"✗ Failed to play '{media_name}' on Spotify",
+                "message": f" Failed to play '{media_name}' on Spotify",
                 "note": "Please open Spotify manually and try again"
             }
     
@@ -1504,13 +1504,13 @@ class CommandExecutor:
                 if success:
                     return {
                         "status": "success",
-                        "message": f"✓ Playing '{media_name}' on Spotify Desktop"
+                        "message": f" Playing '{media_name}' on Spotify Desktop"
                     }
                 else:
                     # Complete failure - NO WEB FALLBACK
                     return {
                         "status": "error",
-                        "message": f"✗ Failed to automate Spotify playback",
+                        "message": f" Failed to automate Spotify playback",
                         "note": "Please ensure Spotify is installed and try again"
                     }
             
@@ -1628,7 +1628,7 @@ class CommandExecutor:
         query = payload.get("query", "")
         platform = payload.get("platform", "google").lower()
         
-        # 🔴 CRITICAL FIX: If Spotify is requested, use desktop app instead of web
+        #  CRITICAL FIX: If Spotify is requested, use desktop app instead of web
         if platform == "spotify":
             print(f"[Search] Spotify search requested for '{query}', using desktop app...")
             # Use desktop app instead of web
@@ -1773,7 +1773,7 @@ def execute_intent(intent_data: dict) -> dict:
     try:
         original_text = intent_data.get("original_text", "")
         
-        # 🔥 NEW: Detect shutdown intents BEFORE processing
+        #  NEW: Detect shutdown intents BEFORE processing
         intent_data = detect_shutdown_intent(original_text, intent_data)
         
         action = intent_data.get("action", "").lower()
@@ -1784,7 +1784,7 @@ def execute_intent(intent_data: dict) -> dict:
         target_lower = target.lower()
         
         # ============================================================
-        # 🔥 NEW: POWER/SHUTDOWN COMMANDS - Handle FIRST (before weather)
+        #  NEW: POWER/SHUTDOWN COMMANDS - Handle FIRST (before weather)
         # ============================================================
         if action in ["shutdown", "restart", "reboot", "sleep", "hibernate"]:
             return handle_power_command(action, target, parameters)
@@ -1795,7 +1795,7 @@ def execute_intent(intent_data: dict) -> dict:
             return handle_power_command("shutdown", "computer", parameters)
         
         # ============================================================
-        # 🔥 FIX: WEATHER QUERIES - Handle BEFORE conversation routing
+        #  FIX: WEATHER QUERIES - Handle BEFORE conversation routing
         # ============================================================
         if any(keyword in target_lower for keyword in ["weather", "temperature", "forecast"]):
             return _handle_weather_query(target_lower)
@@ -1826,19 +1826,19 @@ def execute_intent(intent_data: dict) -> dict:
         if action == "what" and any(word in target_lower for word in ["time", "date", "day"]):
             if "time" in target_lower:
                 current_time = time.strftime("%I:%M %p")
-                return {"status": "success", "message": f"[🕐] It's {current_time}"}
+                return {"status": "success", "message": f"[] It's {current_time}"}
             elif "date" in target_lower:
                 current_date = time.strftime("%B %d, %Y")
-                return {"status": "success", "message": f"[📅] Today is {current_date}"}
+                return {"status": "success", "message": f"[] Today is {current_date}"}
             elif "day" in target_lower:
                 current_day = time.strftime("%A")
-                return {"status": "success", "message": f"[📆] It's {current_day}"}
+                return {"status": "success", "message": f"[] It's {current_day}"}
         
         # ============================================================
         # ACTION HANDLERS - Updated with conversation fix
         # ============================================================
         action_handlers = {
-            # 🔥 FIX: Conversation queries now properly return for AI handling
+            #  FIX: Conversation queries now properly return for AI handling
             "chat": lambda: {"status": "conversation", "query": target},
             "ask": lambda: {"status": "conversation", "query": target},
             "explain": lambda: {"status": "conversation", "query": target},
@@ -2035,7 +2035,7 @@ def _handle_weather_query(query_lower: str) -> dict:
         webbrowser.open(search_url)
         
         message = f"Showing weather for {location}" if location else "Showing current weather"
-        return {"status": "success", "message": f"[🌤️] {message}"}
+        return {"status": "success", "message": f"[️] {message}"}
     
     except Exception as e:
         logger.error(f"Weather query error: {e}")
@@ -2082,7 +2082,7 @@ def _handle_open_action(target_lower: str, target_original: str) -> dict:
     if not target_lower:
         return {"status": "error", "message": "No target specified"}
     
-    # 🔥 CRITICAL FIX: Check for INSTALLED APP first
+    #  CRITICAL FIX: Check for INSTALLED APP first
     app_result = _try_open_desktop_app(target_lower)
     if app_result["status"] == "success":
         return app_result  # Found and opened app, stop here
@@ -2229,7 +2229,7 @@ def _handle_type_action(text: str) -> dict:
     if not text:
         return {"status": "error", "message": "No text to type"}
     
-    # 🔥 FIX: Restore punctuation that brain might have stripped
+    #  FIX: Restore punctuation that brain might have stripped
     text = _restore_punctuation(text)
     
     if _EXECUTOR.typing.type_with_formatting(text):
@@ -2317,7 +2317,7 @@ def open_app(app_name: str) -> dict:
             else:
                 url = app_name
             
-            logger.info(f"✓ URL detected: {url}")
+            logger.info(f" URL detected: {url}")
             webbrowser.open(url)
             return {"status": "success", "message": f"Opening {app_name} in browser"}
         
@@ -2325,7 +2325,7 @@ def open_app(app_name: str) -> dict:
         elif app_name in web_first_brands:
             # Open in web browser (construct URL intelligently)
             url = f'https://www.{app_name}.com'
-            logger.info(f"✓ Web brand detected: {url}")
+            logger.info(f" Web brand detected: {url}")
             webbrowser.open(url)
             return {"status": "success", "message": f"Opening {app_name}"}
         
@@ -2333,7 +2333,7 @@ def open_app(app_name: str) -> dict:
         elif app_name in desktop_first_apps:
             # Try to open as desktop application
             # Fall through to registry lookup below
-            logger.info(f"✓ Desktop app detected: {app_name}")
+            logger.info(f" Desktop app detected: {app_name}")
             pass  # Continue to registry lookup
         
         # For ambiguous cases (not in either list), try registry first
@@ -2441,7 +2441,7 @@ def close_app(name: str) -> Dict:
     """Close an application by name"""
     return execute_intent({
         "action": "close",
-        "target": name,  # ✅ Put app name in "target" not "payload"
+        "target": name,  #  Put app name in "target" not "payload"
         "parameters": {}
     })
     
