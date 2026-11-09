@@ -329,26 +329,26 @@ def validate_config() -> bool:
     
     # Check Groq API Key
     if not API_CONFIG.groq_api_key:
-        print("[Config] ⚠ GROQ_API_KEY not set - AI features disabled")
+        print("[Config]  GROQ_API_KEY not set - AI features disabled")
     else:
-        print("[Config] ✓ Groq API Key found")
+        print("[Config]  Groq API Key found")
     
     # Check Vosk Models
     for model_name, model_path in MODEL_PATHS.items():
         if not os.path.exists(model_path):
-            errors.append(f"✗ {model_name} model not found: {model_path}")
+            errors.append(f" {model_name} model not found: {model_path}")
             print(f"[Config] {errors[-1]}")
             if model_name == "asr_english":
                 print(f"[Config]   Download: https://alphacephei.com/vosk/models")
                 print(f"[Config]   Extract to: {MODELS_DIR}")
         else:
-            print(f"[Config] ✓ {model_name} model found")
+            print(f"[Config]  {model_name} model found")
     
     if errors:
-        print("\n[Config] ✗ VALIDATION FAILED")
+        print("\n[Config]  VALIDATION FAILED")
         return False
     
-    print("[Config] ✓ All checks passed")
+    print("[Config]  All checks passed")
     return True
 
 def get_system_info() -> dict:
@@ -383,9 +383,9 @@ def print_config_summary():
     print("\n" + "="*60)
     print("JARVIS AI AGENT - CONFIGURATION")
     print("="*60)
-    print(f"Wake Word Model: {'✓ Available' if info['wake_word_model'] else '✗ Missing'}")
-    print(f"ASR Model:       {'✓ Available' if info['asr_model'] else '✗ Missing'}")
-    print(f"Groq API:        {'✓ Configured' if info['groq_api'] else '✗ Not Set'}")
+    print(f"Wake Word Model: {' Available' if info['wake_word_model'] else ' Missing'}")
+    print(f"ASR Model:       {' Available' if info['asr_model'] else ' Missing'}")
+    print(f"Groq API:        {' Configured' if info['groq_api'] else ' Not Set'}")
     print(f"Wake Word:       {info['wake_word']}")
     print(f"Mode:            {info['mode']}")
     print(f"Models Dir:      {info['models_dir']}")
