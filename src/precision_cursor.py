@@ -460,9 +460,9 @@ def enhanced_cursor_thread(hand_state, screen_w: int, screen_h: int,
             
             # Optional: Log debug info (disable in production)
             # if status['locked']:
-            #     print("🔒 CURSOR LOCKED")
+            #     print(" CURSOR LOCKED")
             # if status['snapped']:
-            #     print("🎯 MICRO-SNAP ACTIVE")
+            #     print(" MICRO-SNAP ACTIVE")
         
         # FPS tracking
         current_time = time.perf_counter()
