@@ -27,7 +27,7 @@ pyautogui.PAUSE = 0
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-DEBUG = False  # Set False for production (removes display overhead)
+DEBUG = True  # Set False for production (removes display overhead)
 
 class GestureThresholds:
     """Centralized gesture detection thresholds"""
@@ -577,63 +577,43 @@ def vision_process_loop(shared_state):
     
     # ===== MAIN LOOP =====
     while shared_state.system_active.value:
-        
-        # Process pending commands
         while not shared_state.command_queue.empty():
             cmd = shared_state.command_queue.get()
             ctx = shared_state.get_context()
             threading.Thread(target=execute_command, args=(cmd, ctx), daemon=True).start()
         
-        # Frame skipping for performance (process every 2nd frame)
         if frame_count % 2 != 0:
             frame_count += 1
             continue
-        
-        # Capture frame
         ret, frame = camera.read()
         if not ret or frame is None:
             continue
         
         frame = cv2.flip(frame, 1)
         h, w = frame.shape[:2]
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # MediaPipe inference
-        results = hands.process(rgb)
-        
-        # FPS calculation
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  
+        results = hands.process(rgb) 
         current_time = time.perf_counter()
         fps = 1.0 / max(current_time - last_time, 0.001)
         fps_tracker.append(fps)
         hand_state.vision_fps = sum(fps_tracker) / len(fps_tracker)
         last_time = current_time
-        
         display_text = ""
         click_status = ""
-        
-        # ===== HAND DETECTED =====
         if results.multi_hand_landmarks:
             landmarks = results.multi_hand_landmarks[0].landmark
             
-            # Draw hand skeleton (if debug)
             if DEBUG:
                 mp_draw.draw_landmarks(frame, results.multi_hand_landmarks[0], 
                                       mp_hands.HAND_CONNECTIONS)
-            
-            # Get finger states
             fingers = GestureRecognizer.get_finger_states(landmarks)
-            
-            # Calculate pinch distance
             pinch_dist, thumb_x, thumb_y, index_x, index_y = \
                 GestureRecognizer.calculate_pinch_distance(landmarks, w, h)
             
-            # Recognize gesture mode
             mode = GestureRecognizer.recognize_mode(fingers, pinch_dist)
             
-            # Smooth positions for vision thread
             sx, sy = vision_smoother.smooth(index_x, index_y)
             
-            # ===== CURSOR MODE =====
             if mode == GestureMode.CURSOR:
                 # Update state for cursor thread
                 hand_state.update(sx, sy, thumb_x, thumb_y, pinch_dist, mode, cursor_active=True)
@@ -643,10 +623,10 @@ def vision_process_loop(shared_state):
                 
                 # Sniper mode indicator
                 if pinch_dist < GestureThresholds.SNIPER_DISTANCE:
-                    display_text = "🎯 SNIPER MODE"
+                    display_text = " SNIPER MODE"
                 
                 if click_status:
-                    display_text = f"🖱️ {click_status}"
+                    display_text = f"️ {click_status}"
             
             # ===== SCROLL MODE =====
             elif mode == GestureMode.SCROLLING and frame_count % 4 == 0:
@@ -659,7 +639,7 @@ def vision_process_loop(shared_state):
                     scroll_power = int(((abs(delta) - 40) / 10) ** 1.5) * 20
                     direction = -1 if delta > 0 else 1
                     pyautogui.scroll(scroll_power * direction)
-                    display_text = f"📜 SCROLL {scroll_power * direction:+d}"
+                    display_text = f" SCROLL {scroll_power * direction:+d}"
             
             # ===== VOLUME CONTROL =====
             elif mode == GestureMode.VOLUME:
@@ -669,11 +649,11 @@ def vision_process_loop(shared_state):
                     pinky_y = landmarks[20].y
                     if pinky_y < 0.3:
                         pyautogui.press('volumeup')
-                        display_text = "🔊 VOLUME UP"
+                        display_text = " VOLUME UP"
                         last_gesture_time = time.time()
                     elif pinky_y > 0.7:
                         pyautogui.press('volumedown')
-                        display_text = "🔉 VOLUME DOWN"
+                        display_text = " VOLUME DOWN"
                         last_gesture_time = time.time()
             
             # ===== MEDIA CONTROL =====
@@ -713,9 +693,9 @@ def vision_process_loop(shared_state):
             # Gesture guide
             guide = [
                 "GESTURES:",
-                "☝️  INDEX: Cursor | Pinch: Click (hold 0.5s = Right)",
-                "🤟 3-FINGERS: Scroll | 🤙 SHAKA: Volume",
-                "✊ FIST: Play/Pause"
+                " INDEX: Cursor | Pinch: Click (hold 0.5s = Right)",
+                " 3-FINGERS: Scroll |  Thumb + Pinky finger Stretch: Volume",
+                " FIST: Play/Pause"
             ]
             
             y_pos = h - 120
