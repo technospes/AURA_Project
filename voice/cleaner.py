@@ -199,9 +199,9 @@ class InputCleaner:
         primary = commands[0] if commands else text
 
         if len(commands) > 1:
-            logger.info(f"🔀 Multi-command split: {commands}")
+            logger.info(f" Multi-command split: {commands}")
         else:
-            logger.debug(f"🧹 Cleaned: '{raw}' → '{primary}'")
+            logger.debug(f" Cleaned: '{raw}' → '{primary}'")
 
         return primary, commands
 
